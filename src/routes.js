@@ -156,6 +156,45 @@ router.get('/auth/me', (req, res) => {
   res.json({ user: auth.publicUser(req.user) });
 });
 
+/* 修改/设置密码（游客设置密码后自动转为正式账号） */
+router.post('/me/password', auth.requireAuth, (req, res) => {
+  const { oldPassword, newPassword } = req.body || {};
+  if (!newPassword || String(newPassword).length < 6) return res.status(400).json({ error: 'password_too_short' });
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (u.pass_hash && !auth.verifyPassword(String(oldPassword || ''), u.pass_hash)) {
+    return res.status(401).json({ error: 'bad_old_password' });
+  }
+  db.prepare('UPDATE users SET pass_hash = ?, anonymous = 0 WHERE id = ?').run(
+    auth.hashPassword(String(newPassword)),
+    u.id
+  );
+  res.json({ ok: true });
+});
+
+/* 管理员：运营概览（只读统计，不含任何用户隐私数据） */
+function requireAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+  if (!req.user.is_admin) return res.status(403).json({ error: 'forbidden' });
+  next();
+}
+
+router.get('/admin/overview', auth.requireAuth, requireAdmin, (req, res) => {
+  const one = (sql, ...p) => db.prepare(sql).get(...p).n;
+  res.json({
+    ok: true,
+    users: one('SELECT COUNT(*) AS n FROM users'),
+    admins: one('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1'),
+    guests: one('SELECT COUNT(*) AS n FROM users WHERE anonymous = 1'),
+    adoptions: one('SELECT COUNT(*) AS n FROM adoptions WHERE released_at IS NULL'),
+    chickens: one('SELECT COUNT(*) AS n FROM chickens'),
+    reports: one('SELECT COUNT(*) AS n FROM reports'),
+    achievementsUnlocked: one('SELECT COUNT(*) AS n FROM user_achievements'),
+    todayEvents: one('SELECT COUNT(*) AS n FROM daily_events WHERE date = ?', today()),
+    dataSource: quote.getStats(),
+    ai: { configured: !!config.hunyuan.key },
+  });
+});
+
 /* ============================ 鸡舍 ============================ */
 
 router.get('/yard', auth.requireAuth, async (req, res) => {

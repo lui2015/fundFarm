@@ -29,4 +29,9 @@ module.exports = {
   },
   maxUploadMB: 20,
   maxAdoptions: 50,
+  // 默认管理员账号：首次启动时自动创建，可用环境变量覆盖；设 ADMIN_PASSWORD 为空则不创建
+  admin: {
+    username: process.env.ADMIN_USERNAME || 'luli',
+    password: process.env.ADMIN_PASSWORD || 'luli116574',
+  },
 };

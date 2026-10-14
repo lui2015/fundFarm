@@ -118,6 +118,7 @@ function publicUser(u) {
     username: u.username,
     nickname: u.nickname,
     anonymous: !!u.anonymous,
+    isAdmin: !!u.is_admin,
     feed: u.feed,
     checkinStreak: u.checkin_streak,
     lastCheckin: u.last_checkin,

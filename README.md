@@ -100,6 +100,21 @@ curl -X POST http://127.0.0.1:3290/api/v1/funds/005827/reports \
   -d '{"title":"2026Q2季报解读","tags":["AI生成"],"content":"...","parse":true}'
 ```
 
+## 默认管理员账号
+
+服务首次启动会自动创建管理员账号（bcrypt 加密存储）：
+
+- 账号 `luli` / 密码 `luli116574`（昵称「农场主」，初始 50 饲料，自动生成「我的持仓 / 观察区」两个分组）
+
+可通过环境变量覆盖：`ADMIN_USERNAME`、`ADMIN_PASSWORD`（设为空则不创建种子账号）。
+
+管理员能力：
+
+- 「我的 → 站点管理 → 查看运营概览」：`GET /api/v1/admin/overview`，只读统计（账号数、在养基金数、报告数、行情成功率等，不含隐私数据），非管理员访问返回 403
+- 「我的 → 账号安全 → 修改密码」：`POST /api/v1/me/password`（游客设置密码后自动转为正式账号，数据保留）
+
+建议部署后尽快在「账号安全」中修改默认密码。
+
 ## 部署要点
 
 - 单端口服务，PM2：`pm2 start ecosystem.config.cjs && pm2 save`

@@ -70,6 +70,8 @@ export const Api = {
   reparse: (id) => request('/reports/' + id + '/reparse', { method: 'POST' }),
 
   checkin: () => request('/me/checkin'),
+  changePassword: (b) => request('/me/password', { method: 'POST', body: b }),
+  adminOverview: () => request('/admin/overview'),
   settings: (patch) => request('/me/settings', { method: 'POST', body: patch }),
   keys: () => request('/me/keys'),
   addKey: (name) => request('/me/keys', { method: 'POST', body: { name } }),

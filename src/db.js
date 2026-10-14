@@ -259,6 +259,39 @@ const TASKS = [
   ['add_fund', '研究一只新基', '领养一只新基金或查看一只观察区的基', 1, 3, 2],
 ];
 
+/* ---------- 轻量迁移：管理员标记 ---------- */
+const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+if (!userCols.includes('is_admin')) {
+  db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+}
+
+/* ---------- 默认管理员种子账号 ---------- */
+(function ensureAdmin() {
+  const bcrypt = require('bcryptjs');
+  const username = config.admin.username;
+  const password = config.admin.password;
+  if (!username || !password) return;
+
+  const row = db.prepare('SELECT id, is_admin FROM users WHERE username = ?').get(username);
+  let adminId;
+  if (!row) {
+    adminId = 'usr_admin_' + Date.now().toString(36);
+    db.prepare(
+      'INSERT INTO users (id, username, pass_hash, nickname, anonymous, feed, is_admin, created_at) VALUES (?, ?, ?, ?, 0, 50, 1, ?)'
+    ).run(adminId, username, bcrypt.hashSync(password, 10), '农场主', new Date().toISOString());
+  } else {
+    adminId = row.id;
+    if (!row.is_admin) db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(adminId);
+  }
+
+  const gCount = db.prepare('SELECT COUNT(*) AS n FROM groups WHERE user_id = ?').get(adminId).n;
+  if (!gCount) {
+    const ins = db.prepare('INSERT INTO groups (id, user_id, name, sort, is_default) VALUES (?, ?, ?, ?, ?)');
+    ins.run('grp_admin_1', adminId, '我的持仓', 0, 1);
+    ins.run('grp_admin_2', adminId, '观察区', 1, 0);
+  }
+})();
+
 const insertAch = db.prepare(
   'INSERT OR IGNORE INTO achievements (code, name, desc, category, condition, reward) VALUES (?, ?, ?, ?, ?, ?)'
 );
