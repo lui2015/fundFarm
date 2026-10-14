@@ -2,6 +2,7 @@ import { Api } from './api.js';
 import { esc, toast } from './util.js';
 import * as Yard from './pages/yard.js';
 import * as Funds from './pages/funds.js';
+import * as Reports from './pages/reports.js';
 import * as Detail from './pages/detail.js';
 import * as Discover from './pages/discover.js';
 import * as Me from './pages/me.js';
@@ -20,6 +21,7 @@ export function setUser(u) {
 const NAV = [
   { key: 'yard', hash: '#/yard', icon: '🏠', label: '鸡舍' },
   { key: 'funds', hash: '#/funds', icon: '📋', label: '自选' },
+  { key: 'reports', hash: '#/reports', icon: '📄', label: '报告' },
   { key: 'discover', hash: '#/discover', icon: '🏅', label: '发现' },
   { key: 'me', hash: '#/me', icon: '🙋', label: '我的' },
 ];
@@ -29,7 +31,7 @@ function parseHash() {
   const parts = h.split('/').filter(Boolean);
   if (!parts.length) return { name: 'yard', param: '' };
   if (parts[0] === 'fund') return { name: 'fund', param: parts[1] || '' };
-  if (['yard', 'funds', 'discover', 'me'].includes(parts[0])) return { name: parts[0], param: '' };
+  if (['yard', 'funds', 'reports', 'discover', 'me'].includes(parts[0])) return { name: parts[0], param: '' };
   return { name: 'yard', param: '' };
 }
 
@@ -143,7 +145,7 @@ function bindAuth(root) {
   };
 }
 
-const PAGES = { yard: Yard, funds: Funds, fund: Detail, discover: Discover, me: Me };
+const PAGES = { yard: Yard, funds: Funds, reports: Reports, fund: Detail, discover: Discover, me: Me };
 
 export function refresh() {
   route();

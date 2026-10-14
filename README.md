@@ -54,6 +54,21 @@ data/                  SQLite 库与上传的报告（已 gitignore）
 - 支持 ↑↓ 选择、回车确认、Esc 关闭；鼠标点击同样可选
 - 选中后自动填充基金代码与昵称，联想数据来自 `/api/v1/search`（服务端 10 分钟缓存）
 
+## 报告模块
+
+导航中「报告」页是报告总库：
+
+- 列出全部已上传报告，支持关键词搜索（标题/基金名/代码）与筛选（全部 / 已解析 / 解析中 / 未关联 / 已关联）
+- **新增**：可关联到某只已领养基金、填写其他基金代码，或「暂不关联」先存档；支持文件或粘贴文本，可选 AI 解析
+- **查看 / 重新解析 / 删除**：查看弹窗展示 AI 摘要、要点、风险、置信度与报告原文
+- **关联管理**：未关联的报告可一键「关联基金」，已关联的可「更换关联」
+
+基金详情页「研究报告」区与之联动：
+
+- 「新增报告」默认关联当前基金（复用同一上传弹窗）
+- 「关联已有」可从报告库中挑选报告挂到当前基金（`PATCH /api/v1/reports/{id}`）
+- 每份报告可查看详情或删除，卡片显示解析摘要与要点
+
 ## 核心玩法规则
 
 | 当日涨跌幅 | 事件 | 状态变化 |
@@ -84,7 +99,10 @@ data/                  SQLite 库与上传的报告（已 gitignore）
 | GET/PATCH/DELETE | `/funds/{code}` | 基金详情 / 编辑 / 放归 |
 | POST | `/chickens/{id}/interact` | 喂食 / 抚摸 |
 | GET/POST | `/groups` | 分组 |
-| GET | `/funds/{code}/reports` POST | 报告列表 / 上传（multipart 或 JSON） |
+| GET | `/funds/{code}/reports` / POST | 某基金的报告列表 / 上传（multipart 或 JSON） |
+| GET | `/reports` | 全站报告库（`q` 搜索、`status`、`link=none\|linked` 筛选） |
+| POST | `/reports` | 新增报告（`fund_code` 可为空 = 暂不关联） |
+| PATCH | `/reports/{id}` | 改标题/日期/标签，或关联（改挂）到某只基金 |
 | GET/DELETE | `/reports/{id}` | 报告详情（含 AI 解析）/ 删除 |
 | GET | `/ai-prompt?code=` | 面向 AI 的调用提示词（页面可一键复制） |
 | GET | `/achievements` `/tasks` `/diary` `/breeds` | 成就 / 任务 / 日记 / 图鉴 |

@@ -148,7 +148,7 @@ a {
   bottom: 0;
   z-index: 40;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: #fff;
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -636,6 +636,17 @@ textarea.input {
   font-weight: 700;
   font-size: 14px;
 }
+.rep-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.rep-actions .btn {
+  flex: 1;
+  min-width: 74px;
+}
+
 .ai-note {
   font-size: 12px;
   color: #a1701a;

@@ -3,6 +3,7 @@ import { chickenSVG } from '../chicken.js';
 import { esc, pct, pctClass, fmtAmount, money, fmtDate, toast, modal, confirmBox, copyText, sparkline } from '../util.js';
 import { getState } from '../app.js';
 import { showAchievements } from './yard.js';
+import { uploadModal, linkReportModal, viewModal } from './reports.js';
 
 let data = null;
 let range = 60;
@@ -12,12 +13,12 @@ let code = '';
 async function rerender() {
   if (!root) return;
   data = await Api.fund(code);
-  root.innerHTML = render();
+  root.innerHTML = await render();
   await mount(root);
 }
 
 export async function render(param) {
-  code = param;
+  if (param) code = param; // rerender 时复用已保存的基金代码
   const s = getState();
   data = await Api.fund(code);
   const f = data.fund || {};
@@ -131,13 +132,17 @@ export async function render(param) {
   const reports = `
     <div class="card">
       <div class="card-title">研究报告<span class="spacer"></span>
-        <button class="btn small" data-act="upload">上传报告</button>
-        <button class="btn ghost small" data-act="prompt">复制 AI 提示词</button>
+        <span class="muted" style="font-weight:400;font-size:12px">${(data.reports || []).length} 份</span>
+      </div>
+      <div class="grid-3" style="margin-bottom:10px">
+        <button class="btn small" data-act="upload">新增报告</button>
+        <button class="btn ghost small" data-act="link-report">关联已有</button>
+        <button class="btn ghost small" data-act="prompt">AI 提示词</button>
       </div>
       ${
         data.reports && data.reports.length
           ? data.reports.map(reportItemHtml).join('')
-          : `<div class="empty" style="padding:14px">还没有报告<br/>上传季报/研报，或让 AI 帮你写一份</div>`
+          : `<div class="empty" style="padding:14px">还没有关联的报告<br/>可新增一份，或从「报告」库中关联已有报告</div>`
       }
       <div class="ai-note" style="margin-top:10px">
         AI 解析结果由模型生成，可能存在偏差，仅供参考，不构成投资建议。请以原文为准。
@@ -159,7 +164,10 @@ function reportItemHtml(r) {
   }</div>
         ${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
       </div>
-      <button class="btn ghost small" data-del="${esc(r.id)}">删除</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn ghost small" data-viewr="${esc(r.id)}">查看</button>
+        <button class="btn ghost small" data-del="${esc(r.id)}">删除</button>
+      </div>
     </div>
     ${
       p
@@ -190,10 +198,10 @@ export async function mount(r) {
   root = r;
 
   r.querySelectorAll('[data-range]').forEach((b) => {
-    b.onclick = () => {
+    b.onclick = async () => {
       range = Number(b.getAttribute('data-range'));
-      root.innerHTML = render();
-      mount(root);
+      root.innerHTML = await render();
+      await mount(root);
     };
   });
 
@@ -302,7 +310,10 @@ export async function mount(r) {
     };
 
   const upBtn = r.querySelector('[data-act="upload"]');
-  if (upBtn) upBtn.onclick = uploadModal;
+  if (upBtn) upBtn.onclick = () => uploadModal(code, () => rerender());
+
+  const lkBtn = r.querySelector('[data-act="link-report"]');
+  if (lkBtn) lkBtn.onclick = () => linkReportModal(code, () => rerender());
 
   const prBtn = r.querySelector('[data-act="prompt"]');
   if (prBtn)
@@ -328,6 +339,13 @@ export async function mount(r) {
       }
     };
 
+  r.querySelectorAll('[data-viewr]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      viewModal(b.getAttribute('data-viewr'), () => rerender());
+    };
+  });
+
   r.querySelectorAll('[data-del]').forEach((b) => {
     b.onclick = async (e) => {
       e.stopPropagation();
@@ -339,73 +357,4 @@ export async function mount(r) {
       });
     };
   });
-}
-
-function uploadModal() {
-  modal(
-    '上传研究报告',
-    () => `
-      <div class="seg" style="margin-bottom:12px">
-        <button data-mode="file" class="active">上传文件</button>
-        <button data-mode="text">粘贴文本</button>
-      </div>
-      <div id="up-file">
-        <div class="field"><label>选择文件（PDF / Markdown / TXT / 图片，≤20MB）</label>
-          <input class="input" id="up-input" type="file" accept=".pdf,.md,.markdown,.txt,.csv,.png,.jpg,.jpeg,.webp">
-        </div>
-      </div>
-      <div id="up-text" style="display:none">
-        <div class="field"><label>报告正文（Markdown / 纯文本）</label>
-          <textarea class="input" id="up-content" placeholder="粘贴季报、研报内容…"></textarea>
-        </div>
-      </div>
-      <div class="field"><label>标题</label><input class="input" id="up-title" placeholder="如：2026Q2 季报解读"></div>
-      <div class="grid-2">
-        <div class="field"><label>报告日期</label><input class="input" id="up-date" type="date"></div>
-        <div class="field"><label>标签（逗号分隔）</label><input class="input" id="up-tags" placeholder="季报,AI生成"></div>
-      </div>
-      <label style="display:flex;gap:8px;align-items:center;font-size:14px;margin-bottom:10px">
-        <input type="checkbox" id="up-parse" checked style="width:18px;height:18px"> 上传后用 AI 解析要点
-      </label>
-      <button class="btn block" id="up-submit">上传</button>
-      <div class="muted" style="font-size:12px;margin-top:8px">解析由大模型完成，结果仅供参考，不构成投资建议。</div>`,
-    (body, close) => {
-      const modeBtns = body.querySelectorAll('.seg button');
-      modeBtns.forEach((b) => {
-        b.onclick = () => {
-          const m = b.getAttribute('data-mode');
-          modeBtns.forEach((x) => x.classList.toggle('active', x === b));
-          body.querySelector('#up-file').style.display = m === 'file' ? '' : 'none';
-          body.querySelector('#up-text').style.display = m === 'text' ? '' : 'none';
-        };
-      });
-      body.querySelector('#up-submit').onclick = async () => {
-        const isFile = body.querySelector('#up-file').style.display !== 'none';
-        const form = new FormData();
-        form.append('title', body.querySelector('#up-title').value || '未命名报告');
-        form.append('report_date', body.querySelector('#up-date').value || '');
-        form.append('tags', body.querySelector('#up-tags').value || '');
-        form.append('parse', body.querySelector('#up-parse').checked ? 'true' : 'false');
-        if (isFile) {
-          const file = body.querySelector('#up-input').files[0];
-          if (!file) return toast('请选择文件');
-          form.append('file', file);
-        } else {
-          const content = body.querySelector('#up-content').value;
-          if (!content.trim()) return toast('请粘贴报告内容');
-          form.append('content', content);
-          form.append('source', 'text');
-        }
-        try {
-          const out = await Api.upload('/funds/' + code + '/reports', form);
-          close();
-          toast('上传成功' + (out.report.status === 'parsing' ? '，AI 正在解析' : ''));
-          if (out.newAchievements?.length) showAchievements(out.newAchievements);
-          rerender();
-        } catch (e) {
-          toast(e.message === 'file_too_large' ? '文件超过 20MB' : '上传失败：' + e.message);
-        }
-      };
-    }
-  );
 }

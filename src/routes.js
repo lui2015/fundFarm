@@ -614,9 +614,21 @@ const upload = multer({
 
 function publicReport(r, includeContent = false) {
   const parse = db.prepare('SELECT * FROM report_parses WHERE report_id = ?').get(r.id);
+  const fund = r.fund_code
+    ? db.prepare('SELECT name, type FROM funds WHERE code = ?').get(r.fund_code)
+    : null;
+  const adopted = r.fund_code
+    ? !!db
+        .prepare('SELECT 1 FROM adoptions WHERE user_id = ? AND fund_code = ? AND released_at IS NULL')
+        .get(r.user_id, r.fund_code)
+    : false;
   return {
     id: r.id,
-    fundCode: r.fund_code,
+    fundCode: r.fund_code || '',
+    fundName: fund ? fund.name : null,
+    fundType: fund ? fund.type : null,
+    linked: !!(r.fund_code && fund),
+    adopted,
     title: r.title,
     source: r.source,
     reportDate: r.report_date,
@@ -659,16 +671,18 @@ router.get('/funds/:code/reports', auth.requireAuth, (req, res) => {
   res.json({ items: rows.map(publicReport) });
 });
 
-router.post('/funds/:code/reports', auth.requireAuth, (req, res) => {
-  req.reportId = gid('rpt');
-  upload.single('file')(req, res, async (err) => {
+/** 创建报告（/funds/:code/reports 与 /reports 共用；fund_code 可为空表示暂不关联） */
+function createReportHandler(resolveFundCode) {
+  return (req, res) => {
+    req.reportId = gid('rpt');
+    upload.single('file')(req, res, async (err) => {
     if (err) {
       const code = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
       return res.status(code).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'file_too_large' : 'upload_failed', message: err.message });
     }
     try {
-      const fundCode = String(req.params.code);
-      if (!CODE_RE.test(fundCode)) return res.status(400).json({ error: 'bad_fund_code' });
+      const fundCode = String(resolveFundCode(req) || '').trim();
+      if (fundCode && !CODE_RE.test(fundCode)) return res.status(400).json({ error: 'bad_fund_code' });
       const body = req.body || {};
       const title = String(body.title || '').trim() || (req.file ? req.file.originalname : '未命名报告');
       const content = String(body.content || '');
@@ -733,7 +747,89 @@ router.post('/funds/:code/reports', auth.requireAuth, (req, res) => {
     } catch (e) {
       res.status(500).json({ error: 'upload_failed', message: String(e.message || e) });
     }
+    });
+  };
+}
+
+router.post('/funds/:code/reports', auth.requireAuth, createReportHandler((req) => req.params.code));
+router.post('/reports', auth.requireAuth, createReportHandler((req) => (req.body || {}).fund_code));
+
+/** 全部报告列表（支持按基金/状态/未关联/关键词筛选） */
+router.get('/reports', auth.requireAuth, (req, res) => {
+  const { fundCode, status, link, q } = req.query;
+  const where = ['r.user_id = ?'];
+  const params = [req.user.id];
+  if (fundCode) {
+    where.push('r.fund_code = ?');
+    params.push(String(fundCode));
+  }
+  if (status && ['done', 'parsing', 'pending', 'failed'].includes(String(status))) {
+    where.push('r.status = ?');
+    params.push(String(status));
+  }
+  if (link === 'none') where.push("(r.fund_code IS NULL OR r.fund_code = '')");
+  if (link === 'linked') where.push("r.fund_code IS NOT NULL AND r.fund_code != ''");
+  if (q) {
+    where.push('(r.title LIKE ? OR r.fund_code LIKE ? OR f.name LIKE ?)');
+    const like = `%${String(q).slice(0, 40)}%`;
+    params.push(like, like, like);
+  }
+  const rows = db
+    .prepare(
+      `SELECT r.*, f.name AS fund_name FROM reports r
+       LEFT JOIN funds f ON f.code = r.fund_code
+       WHERE ${where.join(' AND ')}
+       ORDER BY r.created_at DESC LIMIT 200`
+    )
+    .all(...params);
+  res.json({
+    items: rows.map((r) => publicReport(r)),
+    count: rows.length,
+    stats: {
+      total: db.prepare('SELECT COUNT(*) AS n FROM reports WHERE user_id = ?').get(req.user.id).n,
+      done: db.prepare("SELECT COUNT(*) AS n FROM reports WHERE user_id = ? AND status = 'done'").get(req.user.id).n,
+      parsing: db.prepare("SELECT COUNT(*) AS n FROM reports WHERE user_id = ? AND status = 'parsing'").get(req.user.id).n,
+      unlinked: db
+        .prepare("SELECT COUNT(*) AS n FROM reports WHERE user_id = ? AND (fund_code IS NULL OR fund_code = '')")
+        .get(req.user.id).n,
+    },
   });
+});
+
+/** 修改报告：改标题/日期/标签，或关联（改挂）到某只基金 */
+router.patch('/reports/:id', auth.requireAuth, (req, res) => {
+  const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!r || r.user_id !== req.user.id) return res.status(404).json({ error: 'not_found' });
+  const body = req.body || {};
+  let fundCode = r.fund_code;
+  if (body.fund_code !== undefined) {
+    const fc = String(body.fund_code || '').trim();
+    if (fc && !CODE_RE.test(fc)) return res.status(400).json({ error: 'bad_fund_code' });
+    fundCode = fc;
+  }
+  const adoption = fundCode ? getAdoption(req.user.id, fundCode) : null;
+  const tags =
+    body.tags !== undefined
+      ? String(body.tags)
+          .split(/[,，\s]+/)
+          .filter(Boolean)
+          .slice(0, 8)
+          .join(',')
+      : r.tags;
+  db.prepare(
+    `UPDATE reports SET title = ?, report_date = ?, tags = ?, fund_code = ?, adoption_id = ? WHERE id = ?`
+  ).run(
+    body.title !== undefined ? String(body.title).slice(0, 120) || r.title : r.title,
+    body.report_date !== undefined ? String(body.report_date).slice(0, 10) : r.report_date,
+    tags,
+    fundCode,
+    (adoption || {}).id || null,
+    r.id
+  );
+  if (fundCode && fundCode !== r.fund_code) {
+    diary(req.user.id, 'report', `报告《${body.title || r.title}》已关联到 ${fundCode}`, null);
+  }
+  res.json({ ok: true, report: publicReport(db.prepare('SELECT * FROM reports WHERE id = ?').get(r.id)) });
 });
 
 async function parseInBackground(reportId, text, userId, fundCode) {

@@ -65,6 +65,9 @@ export const Api = {
   aiPrompt: (code) => request('/ai-prompt?code=' + code),
 
   reports: (code) => request('/funds/' + code + '/reports'),
+  reportsAll: (qs = '') => request('/reports' + (qs ? '?' + qs : '')),
+  createReport: (form) => request('/reports', { method: 'POST', form }),
+  updateReport: (id, patch) => request('/reports/' + id, { method: 'PATCH', body: patch }),
   report: (id) => request('/reports/' + id),
   delReport: (id) => request('/reports/' + id, { method: 'DELETE' }),
   reparse: (id) => request('/reports/' + id + '/reparse', { method: 'POST' }),
