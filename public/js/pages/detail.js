@@ -1,0 +1,411 @@
+import { Api } from '../api.js';
+import { chickenSVG } from '../chicken.js';
+import { esc, pct, pctClass, fmtAmount, money, fmtDate, toast, modal, confirmBox, copyText, sparkline } from '../util.js';
+import { getState } from '../app.js';
+import { showAchievements } from './yard.js';
+
+let data = null;
+let range = 60;
+let root = null;
+let code = '';
+
+async function rerender() {
+  if (!root) return;
+  data = await Api.fund(code);
+  root.innerHTML = render();
+  await mount(root);
+}
+
+export async function render(param) {
+  code = param;
+  const s = getState();
+  data = await Api.fund(code);
+  const f = data.fund || {};
+  const q = data.quote || {};
+  const m = data.metrics || {};
+  const c = data.chicken;
+  const hist = (data.history || []).slice(-range).map((h) => ({ v: h.nav }));
+  const chartColor = (data.history && data.history.at(-1)?.pct >= 0) ? 'var(--up)' : 'var(--down)';
+
+  const header = `
+    <div class="card">
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="flex:0 0 110px">${c ? chickenSVG(c, { size: 110, showHungry: true }) : '<div class="empty">未领养</div>'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:800;font-size:17px">${esc(data.adoption?.nickname || f.name || code)}</div>
+          <div class="muted" style="font-size:13px">${esc(code)} · ${esc(f.type || '')} ${esc(f.company || '')}</div>
+          <div style="margin-top:6px;font-size:26px;font-weight:800" class="${pctClass(q.pct ?? m.current?.pct)}">
+            ${q.pct !== undefined && q.pct !== null ? pct(q.pct) : '--'}
+          </div>
+          <div class="muted" style="font-size:12px">
+            估算 ${q.estimate ?? '--'} · 净值 ${q.nav ?? '--'} ${q.navDate ? '（' + esc(q.navDate) + '）' : ''}
+            ${q.live === false ? ' · 数据可能延迟' : ''}
+          </div>
+        </div>
+      </div>
+      ${
+        c
+          ? `<div style="margin-top:12px">
+              <div class="grid-2" style="gap:8px">
+                <div class="bar-row"><span>饱食</span><span class="bar"><span style="width:${c.satiety}%"></span></span><b>${c.satiety}</b></div>
+                <div class="bar-row"><span>心情</span><span class="bar"><span style="width:${c.moodValue}%"></span></span><b>${c.moodValue}</b></div>
+                <div class="bar-row"><span>健康</span><span class="bar"><span style="width:${c.health}%"></span></span><b>${c.health}</b></div>
+                <div class="bar-row"><span>亲密</span><span class="bar"><span style="width:${c.bond}%"></span></span><b>${c.bond}</b></div>
+              </div>
+              <div class="muted" style="font-size:12px;margin-top:6px">
+                ${esc(c.breedName)} · ${esc(c.stateLabel)} · 产蛋 ${c.eggs}（金蛋 ${c.goldenEggs}） · 掉毛 ${c.feathers}
+              </div>
+              <div class="chicken-actions" style="margin-top:10px">
+                <button class="btn ghost small" data-act="feed" data-id="${esc(c.id)}" ${c.canFeed ? '' : 'disabled'}>🌾 喂食</button>
+                <button class="btn ghost small" data-act="pat" data-id="${esc(c.id)}" ${c.canPat ? '' : 'disabled'}>🤲 抚摸</button>
+              </div>
+            </div>`
+          : `<button class="btn block" data-act="adopt-here" style="margin-top:12px">领养这只基金</button>`
+      }
+    </div>`;
+
+  const chart = `
+    <div class="card">
+      <div class="card-title">净值走势
+        <span class="spacer"></span>
+        <div class="seg" style="width:210px">
+          ${[30, 60, 180, 9999]
+            .map((r) => `<button data-range="${r}" class="${range === r ? 'active' : ''}">${r === 9999 ? '全部' : r + '天'}</button>`)
+            .join('')}
+        </div>
+      </div>
+      ${hist.length > 1 ? sparkline(hist, { color: chartColor }) : '<div class="empty" style="padding:12px">暂无净值数据</div>'}
+      ${
+        data.historyStale
+          ? '<div class="muted" style="font-size:12px;text-align:center">历史数据为本地缓存，第三方接口暂不可用</div>'
+          : ''
+      }
+    </div>`;
+
+  const info = `
+    <div class="card">
+      <div class="card-title">基金档案</div>
+      <div class="kv"><span class="k">基金类型</span><span>${esc(f.type || '--')}</span></div>
+      <div class="kv"><span class="k">基金公司</span><span>${esc(f.company || '--')}</span></div>
+      <div class="kv"><span class="k">基金经理</span><span>${esc(f.manager || '--')}</span></div>
+      <div class="kv"><span class="k">成立时间</span><span>${esc(f.established || '--')}</span></div>
+      <div class="kv"><span class="k">基金规模</span><span>${esc(f.scale ? f.scale + ' 亿' : '--')}</span></div>
+    </div>`;
+
+  const holding = data.adopted
+    ? `
+    <div class="card">
+      <div class="card-title">我的持仓<span class="spacer"></span>
+        <button class="btn ghost small" data-act="edit">编辑</button></div>
+      <div class="grid-3">
+        <div class="stat"><div class="v">${fmtAmount(data.adoption.costPrice, s.settings, 4)}</div><div class="k">成本价</div></div>
+        <div class="stat"><div class="v">${data.adoption.shares ?? '--'}</div><div class="k">份额</div></div>
+        <div class="stat"><div class="v">${fmtAmount(m.marketValue, s.settings, 0)}</div><div class="k">市值</div></div>
+      </div>
+      <div class="kv" style="margin-top:8px"><span class="k">持仓盈亏</span>
+        <span class="${pctClass(m.profit)}">${m.profit === null ? '--' : fmtAmount(m.profit, s.settings)}（${
+        m.profitRate === null ? '--' : pct(m.profitRate, 1)
+      }）</span></div>
+      <div class="kv"><span class="k">持有天数</span><span>${data.adoption.holdingDays} 天</span></div>
+      <div class="grid-2" style="margin-top:10px">
+        <button class="btn ghost small" data-act="add-trade">记录一笔买入/卖出</button>
+        <button class="btn ghost small" data-act="release">放归这只鸡</button>
+      </div>
+      ${
+        (data.trades || []).length
+          ? `<div style="margin-top:10px">${data.trades
+              .slice(0, 5)
+              .map(
+                (t) =>
+                  `<div class="kv"><span class="k">${esc(t.date)} ${t.type === 'buy' ? '买入' : '卖出'}</span><span>${money(
+                    t.price,
+                    4
+                  )} × ${t.shares}</span></div>`
+              )
+              .join('')}</div>`
+          : ''
+      }
+    </div>`
+    : '';
+
+  const reports = `
+    <div class="card">
+      <div class="card-title">研究报告<span class="spacer"></span>
+        <button class="btn small" data-act="upload">上传报告</button>
+        <button class="btn ghost small" data-act="prompt">复制 AI 提示词</button>
+      </div>
+      ${
+        data.reports && data.reports.length
+          ? data.reports.map(reportItemHtml).join('')
+          : `<div class="empty" style="padding:14px">还没有报告<br/>上传季报/研报，或让 AI 帮你写一份</div>`
+      }
+      <div class="ai-note" style="margin-top:10px">
+        AI 解析结果由模型生成，可能存在偏差，仅供参考，不构成投资建议。请以原文为准。
+      </div>
+    </div>`;
+
+  return `${header}${chart}${info}${holding}${reports}
+    <div class="disclaimer">数据来源：第三方公开接口，可能存在延迟或误差。<br/>本工具仅供个人学习研究，不构成投资建议。</div>`;
+}
+
+function reportItemHtml(r) {
+  const p = r.parse;
+  return `<div class="report-item" data-report="${esc(r.id)}">
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <div style="flex:1">
+        <div class="ri-title">${esc(r.title)}</div>
+        <div class="muted" style="font-size:12px">${esc(r.reportDate || '')} · ${esc(r.source || '')} ${
+    r.status === 'parsing' ? '· 解析中…' : r.status === 'failed' ? '· 解析失败' : ''
+  }</div>
+        ${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
+      </div>
+      <button class="btn ghost small" data-del="${esc(r.id)}">删除</button>
+    </div>
+    ${
+      p
+        ? `<div style="margin-top:8px;font-size:14px">${esc(p.summary || '')}</div>
+           ${
+             (p.keyPoints || []).length
+               ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:13px">${p.keyPoints
+                   .map((k) => `<li>${esc(k)}</li>`)
+                   .join('')}</ul>`
+               : ''
+           }
+           ${
+             (p.risks || []).length
+               ? `<div style="font-size:13px;margin-top:6px"><b>风险：</b>${p.risks.map((k) => esc(k)).join('；')}</div>`
+               : ''
+           }
+           <div class="muted" style="font-size:11px;margin-top:6px">模型 ${esc(p.model || '')} · 置信度 ${
+             p.confidence === null ? '--' : Math.round(p.confidence * 100) + '%'
+           }</div>`
+        : r.content
+        ? `<div class="muted" style="font-size:13px;margin-top:6px">${esc(r.content.slice(0, 120))}…</div>`
+        : ''
+    }
+  </div>`;
+}
+
+export async function mount(r) {
+  root = r;
+
+  r.querySelectorAll('[data-range]').forEach((b) => {
+    b.onclick = () => {
+      range = Number(b.getAttribute('data-range'));
+      root.innerHTML = render();
+      mount(root);
+    };
+  });
+
+  const feedBtn = r.querySelector('[data-act="feed"]');
+  const patBtn = r.querySelector('[data-act="pat"]');
+  [feedBtn, patBtn].forEach((b) => {
+    if (!b) return;
+    b.onclick = async () => {
+      try {
+        const out = await Api.interact(b.getAttribute('data-id'), b.getAttribute('data-act'));
+        toast(out.text || '互动成功');
+        if (out.newAchievements?.length) showAchievements(out.newAchievements);
+        rerender();
+      } catch (e) {
+        toast(e.message === 'no_feed' ? '饲料不够了' : e.message === 'cooldown' ? '还在冷却中' : '互动失败');
+      }
+    };
+  });
+
+  const adoptHere = r.querySelector('[data-act="adopt-here"]');
+  if (adoptHere)
+    adoptHere.onclick = async () => {
+      try {
+        const out = await Api.adopt({ code });
+        toast('领养成功');
+        if (out.newAchievements?.length) showAchievements(out.newAchievements);
+        rerender();
+      } catch (e) {
+        toast('领养失败：' + e.message);
+      }
+    };
+
+  const editBtn = r.querySelector('[data-act="edit"]');
+  if (editBtn)
+    editBtn.onclick = () => {
+      const a = data.adoption;
+      modal(
+        '编辑持仓',
+        () => `
+        <div class="field"><label>昵称</label><input class="input" id="ed-nick" value="${esc(a.nickname || '')}"></div>
+        <div class="field"><label>成本价</label><input class="input" id="ed-cost" type="number" step="0.0001" value="${a.costPrice ?? ''}"></div>
+        <div class="field"><label>份额</label><input class="input" id="ed-shares" type="number" step="0.01" value="${a.shares ?? ''}"></div>
+        <div class="field"><label>首次买入日期</label><input class="input" id="ed-date" type="date" value="${esc(a.firstBuyDate || '')}"></div>
+        <div class="modal-actions"><button class="btn ghost" data-no>取消</button><button class="btn" data-ok>保存</button></div>`,
+        (body, close) => {
+          body.querySelector('[data-no]').onclick = close;
+          body.querySelector('[data-ok]').onclick = async () => {
+            await Api.updateFund(code, {
+              nickname: body.querySelector('#ed-nick').value,
+              costPrice: body.querySelector('#ed-cost').value,
+              shares: body.querySelector('#ed-shares').value,
+              firstBuyDate: body.querySelector('#ed-date').value || null,
+            });
+            close();
+            toast('已保存');
+            rerender();
+          };
+        }
+      );
+    };
+
+  const tradeBtn = r.querySelector('[data-act="add-trade"]');
+  if (tradeBtn)
+    tradeBtn.onclick = () => {
+      modal(
+        '记录一笔交易',
+        () => `
+        <div class="grid-2">
+          <div class="field"><label>日期</label><input class="input" id="tr-date" type="date" value="${new Date()
+            .toISOString()
+            .slice(0, 10)}"></div>
+          <div class="field"><label>类型</label><select class="input" id="tr-type"><option value="buy">买入</option><option value="sell">卖出</option></select></div>
+          <div class="field"><label>成交价</label><input class="input" id="tr-price" type="number" step="0.0001"></div>
+          <div class="field"><label>份额</label><input class="input" id="tr-shares" type="number" step="0.01"></div>
+        </div>
+        <div class="muted" style="font-size:12px">记录后会自动按移动加权更新成本价与份额</div>
+        <div class="modal-actions"><button class="btn ghost" data-no>取消</button><button class="btn" data-ok>保存</button></div>`,
+        (body, close) => {
+          body.querySelector('[data-no]').onclick = close;
+          body.querySelector('[data-ok]').onclick = async () => {
+            const price = body.querySelector('#tr-price').value;
+            const shares = body.querySelector('#tr-shares').value;
+            if (!price || !shares) return toast('请填写成交价与份额');
+            await Api.addTrade(code, {
+              date: body.querySelector('#tr-date').value,
+              type: body.querySelector('#tr-type').value,
+              price,
+              shares,
+            });
+            close();
+            toast('已记录');
+            rerender();
+          };
+        }
+      );
+    };
+
+  const relBtn = r.querySelector('[data-act="release"]');
+  if (relBtn)
+    relBtn.onclick = () => {
+      confirmBox('放归这只鸡？', '30 天内可再次领养恢复（成长记录保留）。', async () => {
+        await Api.release(code);
+        toast('已放归');
+        location.hash = '#/funds';
+      });
+    };
+
+  const upBtn = r.querySelector('[data-act="upload"]');
+  if (upBtn) upBtn.onclick = uploadModal;
+
+  const prBtn = r.querySelector('[data-act="prompt"]');
+  if (prBtn)
+    prBtn.onclick = async () => {
+      try {
+        const r2 = await Api.aiPrompt(code);
+        modal(
+          '给 AI 的调用提示词',
+          () => `<pre style="white-space:pre-wrap;font-size:12px;background:#fffdf8;border:1px solid var(--line);border-radius:12px;padding:12px;max-height:50vh;overflow:auto">${esc(
+            r2.prompt
+          )}</pre>
+          <div class="modal-actions"><button class="btn ghost" data-copy>复制</button><button class="btn" data-close>好的</button></div>`,
+          (body, close) => {
+            body.querySelector('[data-close]').onclick = close;
+            body.querySelector('[data-copy]').onclick = async () => {
+              await copyText(r2.prompt);
+              toast('已复制，发给你的 AI 助手即可');
+            };
+          }
+        );
+      } catch (e) {
+        toast('获取失败：' + e.message);
+      }
+    };
+
+  r.querySelectorAll('[data-del]').forEach((b) => {
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      const id = b.getAttribute('data-del');
+      confirmBox('删除报告？', '删除后无法恢复。', async () => {
+        await Api.delReport(id);
+        toast('已删除');
+        rerender();
+      });
+    };
+  });
+}
+
+function uploadModal() {
+  modal(
+    '上传研究报告',
+    () => `
+      <div class="seg" style="margin-bottom:12px">
+        <button data-mode="file" class="active">上传文件</button>
+        <button data-mode="text">粘贴文本</button>
+      </div>
+      <div id="up-file">
+        <div class="field"><label>选择文件（PDF / Markdown / TXT / 图片，≤20MB）</label>
+          <input class="input" id="up-input" type="file" accept=".pdf,.md,.markdown,.txt,.csv,.png,.jpg,.jpeg,.webp">
+        </div>
+      </div>
+      <div id="up-text" style="display:none">
+        <div class="field"><label>报告正文（Markdown / 纯文本）</label>
+          <textarea class="input" id="up-content" placeholder="粘贴季报、研报内容…"></textarea>
+        </div>
+      </div>
+      <div class="field"><label>标题</label><input class="input" id="up-title" placeholder="如：2026Q2 季报解读"></div>
+      <div class="grid-2">
+        <div class="field"><label>报告日期</label><input class="input" id="up-date" type="date"></div>
+        <div class="field"><label>标签（逗号分隔）</label><input class="input" id="up-tags" placeholder="季报,AI生成"></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:14px;margin-bottom:10px">
+        <input type="checkbox" id="up-parse" checked style="width:18px;height:18px"> 上传后用 AI 解析要点
+      </label>
+      <button class="btn block" id="up-submit">上传</button>
+      <div class="muted" style="font-size:12px;margin-top:8px">解析由大模型完成，结果仅供参考，不构成投资建议。</div>`,
+    (body, close) => {
+      const modeBtns = body.querySelectorAll('.seg button');
+      modeBtns.forEach((b) => {
+        b.onclick = () => {
+          const m = b.getAttribute('data-mode');
+          modeBtns.forEach((x) => x.classList.toggle('active', x === b));
+          body.querySelector('#up-file').style.display = m === 'file' ? '' : 'none';
+          body.querySelector('#up-text').style.display = m === 'text' ? '' : 'none';
+        };
+      });
+      body.querySelector('#up-submit').onclick = async () => {
+        const isFile = body.querySelector('#up-file').style.display !== 'none';
+        const form = new FormData();
+        form.append('title', body.querySelector('#up-title').value || '未命名报告');
+        form.append('report_date', body.querySelector('#up-date').value || '');
+        form.append('tags', body.querySelector('#up-tags').value || '');
+        form.append('parse', body.querySelector('#up-parse').checked ? 'true' : 'false');
+        if (isFile) {
+          const file = body.querySelector('#up-input').files[0];
+          if (!file) return toast('请选择文件');
+          form.append('file', file);
+        } else {
+          const content = body.querySelector('#up-content').value;
+          if (!content.trim()) return toast('请粘贴报告内容');
+          form.append('content', content);
+          form.append('source', 'text');
+        }
+        try {
+          const out = await Api.upload('/funds/' + code + '/reports', form);
+          close();
+          toast('上传成功' + (out.report.status === 'parsing' ? '，AI 正在解析' : ''));
+          if (out.newAchievements?.length) showAchievements(out.newAchievements);
+          rerender();
+        } catch (e) {
+          toast(e.message === 'file_too_large' ? '文件超过 20MB' : '上传失败：' + e.message);
+        }
+      };
+    }
+  );
+}
