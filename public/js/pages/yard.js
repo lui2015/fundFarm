@@ -2,6 +2,7 @@ import { Api } from '../api.js';
 import { chickenSVG, eventEmoji } from '../chicken.js';
 import { esc, pct, pctClass, fmtAmount, toast, modal } from '../util.js';
 import { getState } from '../app.js';
+import { feedModal, patModal } from './care.js';
 
 let data = null;
 let root = null;
@@ -85,6 +86,10 @@ export async function render() {
         <button class="btn ghost small" data-yact="music">🎵 音乐</button>
         <button class="btn small" data-yact="feedall">🌾 喂全场</button>
       </div>
+      <div class="muted" style="font-size:12px;margin-top:8px;line-height:1.5">
+        这里的任务不是点一下就算完成：喂食要附一份报告或一条心得，安抚要写一句心态笔记，
+        打扫前得先把饿了 / 打蔫的鸡都照料好。
+      </div>
     </div>`;
 
   const chickenCards = data.items
@@ -102,8 +107,12 @@ export async function render() {
           (c.progress || 0) * 100
         )}%"></span></span><b>${c.growth || 0}</b></div>
         <div class="chicken-actions">
-          <button class="btn ghost small" data-act="feed" data-id="${esc(c.id)}" ${c.canFeed ? '' : 'disabled'}>🌾</button>
-          <button class="btn ghost small" data-act="pat" data-id="${esc(c.id)}" ${c.canPat ? '' : 'disabled'}>🤲</button>
+          <button class="btn ghost small" data-act="feed" data-id="${esc(c.id)}" ${
+        c.canFeed ? '' : 'disabled'
+      } title="喂食：需附一份报告或一条 ≥20 字心得">🌾</button>
+          <button class="btn ghost small" data-act="pat" data-id="${esc(c.id)}" ${
+        c.canPat ? '' : 'disabled'
+      } title="抚摸：需写一句 ≥10 字心态笔记">🤲</button>
         </div>
       </div>`;
     })
@@ -176,21 +185,28 @@ export async function mount(r) {
     };
   });
 
+  const afterInteract = async (out) => {
+    if ((out.newAchievements || []).length) showAchievements(out.newAchievements);
+    if (getState().user && typeof out.feedLeft === 'number') getState().user.feed = out.feedLeft;
+    await rerender();
+  };
+
   r.querySelectorAll('[data-act="feed"], [data-act="pat"]').forEach((b) => {
-    b.onclick = async (e) => {
+    b.onclick = (e) => {
       e.stopPropagation();
+      if (b.disabled) return;
       const id = b.getAttribute('data-id');
-      const action = b.getAttribute('data-act');
-      try {
-        const out = await Api.interact(id, action);
-        toast(out.text || '互动成功');
-        if ((out.newAchievements || []).length) showAchievements(out.newAchievements);
-        if (getState().user) getState().user.feed = Math.max(0, getState().user.feed - (action === 'feed' ? 1 : 0));
-        await rerender();
-      } catch (err) {
-        if (err.message === 'no_feed') toast('饲料不够了，去签到或做任务吧');
-        else if (err.message === 'cooldown') toast('它现在还不想吃，等一会儿吧');
-        else toast('互动失败：' + err.message);
+      const card = b.closest('.chicken-card');
+      const target = { id, fundCode: card ? card.getAttribute('data-code') : '', nickname: '' };
+      const item = (data.items || []).find((it) => it.chicken && it.chicken.id === id);
+      if (item) target.nickname = item.nickname;
+      if (b.getAttribute('data-act') === 'feed') {
+        feedModal(target, async (out) => {
+          if (getState().user) getState().user.feed = Math.max(0, (getState().user.feed || 0) - 1);
+          await afterInteract(out);
+        });
+      } else {
+        patModal(target, afterInteract);
       }
     };
   });
@@ -198,18 +214,51 @@ export async function mount(r) {
   r.querySelectorAll('[data-yact]').forEach((b) => {
     b.onclick = async () => {
       const act = b.getAttribute('data-yact');
+      if (act === 'feedall') {
+        feedModal({ all: true }, afterInteract);
+        return;
+      }
       try {
-        if (act === 'feedall') {
-          const out = await Api.yardAction('feed-all');
-          toast(out.fed ? `喂了 ${out.fed} 只鸡` : '大家都不饿，或饲料不足');
-          if (getState().user) getState().user.feed = out.feedLeft;
-        } else {
-          await Api.yardAction(act);
-          toast(act === 'clean' ? '鸡舍打扫干净了，全体健康 +8' : '音乐响起来，全体心情 +10');
-        }
+        const out = await Api.yardAction(act);
+        toast(act === 'clean' ? `打扫干净了，${out.affected} 只鸡健康 +8` : `音乐响起来，${out.affected} 只鸡心情 +10`);
         await rerender();
       } catch (err) {
-        toast('操作失败：' + err.message);
+        if (err.message === 'need_care') {
+          const items = (err.payload && err.payload.items) || [];
+          modal(
+            '鸡舍还不干净',
+            () => `
+              <p style="margin:0 0 6px">先把这些鸡照料好，再打扫吧：</p>
+              ${items
+                .map(
+                  (it) => `<div class="list-row" data-go="${esc(it.fundCode)}">
+                    <div class="lr-main">
+                      <div class="lr-name">${esc(it.nickname)}</div>
+                      <div class="lr-sub">${esc(it.reason)} · 饱食 ${it.satiety}</div>
+                    </div>
+                    <div class="lr-right"><span class="tag">去照料</span></div>
+                  </div>`
+                )
+                .join('')}
+              <div class="muted" style="font-size:12px;margin-top:8px">
+                喂食要附一份报告或一条心得；打蔫的鸡写一句心态笔记就能恢复。
+              </div>
+              <div class="modal-actions"><button class="btn" data-close>知道了</button></div>`,
+            (body, close) => {
+              body.querySelector('[data-close]').onclick = close;
+              body.querySelectorAll('[data-go]').forEach((el) => {
+                el.onclick = () => {
+                  close();
+                  location.hash = '#/fund/' + el.getAttribute('data-go');
+                };
+              });
+            }
+          );
+        } else if (err.message === 'cooldown') {
+          toast(`${act === 'clean' ? '刚打扫过' : '刚放过音乐'}，${err.payload?.leftMin || ''} 分钟后再来`);
+        } else {
+          toast('操作失败：' + err.message);
+        }
       }
     };
   });

@@ -218,7 +218,10 @@ function decayAll(userId) {
 
 const COOLDOWN = { feed: 2 * 3600 * 1000, pat: 4 * 3600 * 1000 };
 
-function interact(chickenId, action, userId) {
+/**
+ * 冷却预检：让调用方在写入手心/报告关联之前就能拦住无意义的请求
+ */
+function checkCooldown(chickenId, action, userId) {
   const c = db
     .prepare(
       `SELECT c.*, a.user_id, a.nickname, a.fund_code FROM chickens c
@@ -226,25 +229,38 @@ function interact(chickenId, action, userId) {
     )
     .get(chickenId);
   if (!c || c.user_id !== userId) return { error: 'not_found' };
-
   const cd = JSON.parse(c.cooldowns || '{}');
   const now = Date.now();
   if (cd[action] && now - cd[action] < COOLDOWN[action]) {
-    const leftMin = Math.ceil((COOLDOWN[action] - (now - cd[action])) / 60000);
-    return { error: 'cooldown', leftMin };
+    return { error: 'cooldown', leftMin: Math.ceil((COOLDOWN[action] - (now - cd[action])) / 60000) };
   }
+  return { ok: true, chicken: c, cooldowns: cd };
+}
+
+/**
+ * 互动。material 形如 { kind: 'report'|'note', label, bonus }：
+ * 喂食 / 安抚都必须附一份投研素材（报告或心得），素材质量决定成长加成。
+ */
+function interact(chickenId, action, userId, material = null) {
+  const pre = checkCooldown(chickenId, action, userId);
+  if (pre.error) return pre;
+  const c = pre.chicken;
+  const cd = pre.cooldowns;
+  const now = Date.now();
+  const bonus = material ? material.bonus || 0 : 0;
+  const isReport = material && material.kind === 'report';
 
   if (action === 'feed') {
     const user = db.prepare('SELECT feed FROM users WHERE id = ?').get(userId);
     if (!user || user.feed < 1) return { error: 'no_feed' };
     db.prepare('UPDATE users SET feed = feed - 1 WHERE id = ?').run(userId);
-    c.satiety = clamp(c.satiety + 25, 0, 100);
+    c.satiety = clamp(c.satiety + (isReport ? 30 : 25), 0, 100);
     c.bond = clamp(c.bond + 3, 0, 100);
-    c.growth += 2;
+    c.growth += 2 + bonus;
   } else if (action === 'pat') {
     c.mood = clamp(c.mood + 15, 0, 100);
     c.bond = clamp(c.bond + 2, 0, 100);
-    c.growth += 1;
+    c.growth += 1 + bonus;
     c.sick = 0; // 抚摸解除情绪低谷
     if (c.streak_down >= 3) c.streak_down = 0;
   } else {
@@ -259,12 +275,47 @@ function interact(chickenId, action, userId) {
   db.prepare('UPDATE users SET total_interact = total_interact + 1 WHERE id = ?').run(userId);
   saveChicken(c);
 
+  const base = action === 'feed' ? '吃饱啦，亲密度 +3' : '被摸了摸头，心情好起来了';
   return {
     ok: true,
     action,
+    bonus,
+    material: material ? material.label : null,
     chicken: publicChicken(c),
-    text: action === 'feed' ? '吃饱啦，亲密度 +3' : '被摸了摸头，心情好起来了',
+    text: material ? `${base}（${material.label}，成长 +${bonus}）` : base,
   };
+}
+
+/**
+ * 需要照料的鸡：饿了（饱食 < 30）或情绪低落（打蔫），
+ * 但正在冷却中的鸡不算「欠照料」——否则会被冷却卡成死局。
+ */
+function careNeeded(userId) {
+  const now = Date.now();
+  return db
+    .prepare(
+      `SELECT a.fund_code, a.nickname, c.satiety, c.sick, c.cooldowns, c.id AS chicken_id
+       FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
+       WHERE a.user_id = ? AND a.released_at IS NULL AND (c.satiety < 30 OR c.sick = 1)
+       ORDER BY c.satiety ASC`
+    )
+    .all(userId)
+    .filter((r) => {
+      const cd = JSON.parse(r.cooldowns || '{}');
+      const canFeed = !cd.feed || now - cd.feed >= COOLDOWN.feed;
+      const canPat = !cd.pat || now - cd.pat >= COOLDOWN.pat;
+      if (r.satiety < 30 && canFeed) return true;
+      if (r.sick === 1 && canPat) return true;
+      return false;
+    })
+    .map((r) => ({
+      chickenId: r.chicken_id,
+      fundCode: r.fund_code,
+      nickname: r.nickname || r.fund_code,
+      satiety: r.satiety,
+      sick: !!r.sick,
+      reason: r.sick ? '情绪低落' : '肚子饿了',
+    }));
 }
 
 /** 全场打扫 / 播放音乐 */
@@ -343,7 +394,9 @@ module.exports = {
   applyDailyEvent,
   decay,
   decayAll,
+  checkCooldown,
   interact,
+  careNeeded,
   yardAction,
   publicChicken,
   overallMood,

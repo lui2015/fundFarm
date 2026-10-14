@@ -4,6 +4,7 @@ import { esc, pct, pctClass, fmtAmount, money, fmtDate, toast, modal, confirmBox
 import { getState } from '../app.js';
 import { showAchievements } from './yard.js';
 import { uploadModal, linkReportModal, viewModal } from './reports.js';
+import { feedModal, patModal, noteModal } from './care.js';
 
 let data = null;
 let range = 60;
@@ -57,8 +58,15 @@ export async function render(param) {
                 ${esc(c.breedName)} · ${esc(c.stateLabel)} · 产蛋 ${c.eggs}（金蛋 ${c.goldenEggs}） · 掉毛 ${c.feathers}
               </div>
               <div class="chicken-actions" style="margin-top:10px">
-                <button class="btn ghost small" data-act="feed" data-id="${esc(c.id)}" ${c.canFeed ? '' : 'disabled'}>🌾 喂食</button>
-                <button class="btn ghost small" data-act="pat" data-id="${esc(c.id)}" ${c.canPat ? '' : 'disabled'}>🤲 抚摸</button>
+                <button class="btn ghost small" data-act="feed" data-id="${esc(c.id)}" ${
+        c.canFeed ? '' : 'disabled'
+      } title="喂食：需附一份报告或一条 ≥20 字心得">🌾 喂食</button>
+                <button class="btn ghost small" data-act="pat" data-id="${esc(c.id)}" ${
+        c.canPat ? '' : 'disabled'
+      } title="抚摸：需写一句 ≥10 字心态笔记">🤲 抚摸</button>
+              </div>
+              <div class="muted" style="font-size:12px;margin-top:6px">
+                喂食 / 安抚都需要附上投研素材：一份报告，或一条投资心得 / 心态笔记。
               </div>
             </div>`
           : `<button class="btn block" data-act="adopt-here" style="margin-top:12px">领养这只基金</button>`
@@ -149,8 +157,44 @@ export async function render(param) {
       </div>
     </div>`;
 
-  return `${header}${chart}${info}${holding}${reports}
+  const notes = `
+    <div class="card">
+      <div class="card-title">投研心得<span class="spacer"></span>
+        <span class="muted" style="font-weight:400;font-size:12px">${(data.notes || []).length} 条</span>
+      </div>
+      <div class="grid-2" style="margin-bottom:10px">
+        <button class="btn small" data-act="add-note">写一条心得</button>
+        <button class="btn ghost small" data-act="feed-with">用报告/心得加餐</button>
+      </div>
+      ${
+        data.notes && data.notes.length
+          ? data.notes.map(noteItemHtml).join('')
+          : `<div class="empty" style="padding:14px">还没有心得记录<br/>写下一条：为什么持有、看到了什么变化、守住了哪条纪律</div>`
+      }
+      <div class="muted" style="font-size:12px;margin-top:8px">
+        喂食与安抚留下的心得都会汇总到这里，形成这只鸡的投研时间线。
+      </div>
+    </div>`;
+
+  return `${header}${chart}${info}${holding}${reports}${notes}
     <div class="disclaimer">数据来源：第三方公开接口，可能存在延迟或误差。<br/>本工具仅供个人学习研究，不构成投资建议。</div>`;
+}
+
+const NOTE_KIND = { feed: '加餐素材', mood: '心态笔记', note: '投资心得', review: '复盘' };
+
+function noteItemHtml(n) {
+  return `<div class="note-item" data-note="${esc(n.id)}">
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div class="note-text">${esc(n.content)}</div>
+        <div class="muted" style="font-size:11px;margin-top:4px">
+          <span class="tag">${esc(NOTE_KIND[n.kind] || n.kind)}</span>
+          ${esc(String(n.createdAt || '').replace('T', ' ').slice(0, 16))}
+        </div>
+      </div>
+      <button class="btn ghost small" data-delnote="${esc(n.id)}">删除</button>
+    </div>
+  </div>`;
 }
 
 function reportItemHtml(r) {
@@ -205,19 +249,48 @@ export async function mount(r) {
     };
   });
 
+  const chickenId = data.chicken ? data.chicken.id : '';
+  const nickname = (data.adoption && data.adoption.nickname) || (data.fund && data.fund.name) || code;
+  const afterInteract = (out) => {
+    if (out && out.newAchievements?.length) showAchievements(out.newAchievements);
+    rerender();
+  };
+
   const feedBtn = r.querySelector('[data-act="feed"]');
+  if (feedBtn)
+    feedBtn.onclick = () => {
+      if (feedBtn.disabled) return;
+      feedModal({ id: chickenId, fundCode: code, nickname }, afterInteract);
+    };
   const patBtn = r.querySelector('[data-act="pat"]');
-  [feedBtn, patBtn].forEach((b) => {
-    if (!b) return;
-    b.onclick = async () => {
-      try {
-        const out = await Api.interact(b.getAttribute('data-id'), b.getAttribute('data-act'));
-        toast(out.text || '互动成功');
-        if (out.newAchievements?.length) showAchievements(out.newAchievements);
-        rerender();
-      } catch (e) {
-        toast(e.message === 'no_feed' ? '饲料不够了' : e.message === 'cooldown' ? '还在冷却中' : '互动失败');
-      }
+  if (patBtn)
+    patBtn.onclick = () => {
+      if (patBtn.disabled) return;
+      patModal({ id: chickenId, fundCode: code, nickname }, afterInteract);
+    };
+
+  const addNoteBtn = r.querySelector('[data-act="add-note"]');
+  if (addNoteBtn) addNoteBtn.onclick = () => noteModal(code, () => rerender());
+
+  const feedWith = r.querySelector('[data-act="feed-with"]');
+  if (feedWith)
+    feedWith.onclick = () => {
+      if (!data.chicken) return toast('先领养这只基金，才能给它加餐');
+      feedModal({ id: chickenId, fundCode: code, nickname }, afterInteract);
+    };
+
+  r.querySelectorAll('[data-delnote]').forEach((b) => {
+    b.onclick = () => {
+      const id = b.getAttribute('data-delnote');
+      confirmBox('删除这条心得？', '删除后不可恢复。', async () => {
+        try {
+          await Api.delNote(id);
+          toast('已删除');
+          rerender();
+        } catch (e) {
+          toast('删除失败：' + e.message);
+        }
+      });
     };
   });
 

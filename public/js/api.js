@@ -49,8 +49,14 @@ export const Api = {
   release: (code) => request('/funds/' + code, { method: 'DELETE' }),
   updateFund: (code, b) => request('/funds/' + code, { method: 'PATCH', body: b }),
   search: (q) => request('/search?q=' + encodeURIComponent(q)),
-  interact: (id, action) => request('/chickens/' + id + '/interact', { method: 'POST', body: { action } }),
-  yardAction: (action) => request('/yard/' + action, { method: 'POST' }),
+  // 喂食 / 安抚必须附投研素材：extra = { note } 或 { report_id }
+  interact: (id, action, extra) =>
+    request('/chickens/' + id + '/interact', { method: 'POST', body: { action, ...(extra || {}) } }),
+  yardAction: (action, body) => request('/yard/' + action, { method: 'POST', body: body || {} }),
+
+  notes: (code = '') => request('/notes' + (code ? '?code=' + encodeURIComponent(code) : '')),
+  addNote: (b) => request('/notes', { method: 'POST', body: b }),
+  delNote: (id) => request('/notes/' + id, { method: 'DELETE' }),
 
   groups: () => request('/groups'),
   addGroup: (name) => request('/groups', { method: 'POST', body: { name } }),

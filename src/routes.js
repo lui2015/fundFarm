@@ -206,16 +206,39 @@ router.get('/yard', auth.requireAuth, async (req, res) => {
   }
 });
 
+/** 全场动作冷却（打扫 6h / 音乐 4h）：避免无意义的连点，让每次照料都要做选择 */
+const YARD_COOLDOWN = { clean: 6 * 3600 * 1000, music: 4 * 3600 * 1000 };
+
+function yardCooldownLeft(userId, action) {
+  const prefix = action === 'clean' ? '打扫了鸡舍%' : '给鸡舍放了音乐%';
+  const row = db
+    .prepare(
+      `SELECT created_at FROM diary WHERE user_id = ? AND type = 'care' AND text LIKE ?
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(userId, prefix);
+  if (!row) return 0;
+  const left = YARD_COOLDOWN[action] - (Date.now() - Date.parse(row.created_at));
+  return left > 0 ? Math.ceil(left / 60000) : 0;
+}
+
 router.post('/yard/clean', auth.requireAuth, (req, res) => {
+  // 打扫前必须先照料好所有饿了 / 打蔫的鸡：打扫是对鸡舍负责，而不是点一下
+  const pending = chickenEngine.careNeeded(req.user.id);
+  if (pending.length) return res.status(409).json({ error: 'need_care', items: pending });
+  const leftMin = yardCooldownLeft(req.user.id, 'clean');
+  if (leftMin) return res.status(429).json({ error: 'cooldown', leftMin });
   const r = chickenEngine.yardAction(req.user.id, 'clean');
   tasks.bump(req.user.id, 'clean_yard', 1);
-  diary(req.user.id, 'care', '打扫了鸡舍，全体鸡健康 +8');
+  diary(req.user.id, 'care', `打扫了鸡舍，全体鸡健康 +8（${r.affected} 只）`);
   res.json({ ok: true, ...r });
 });
 
 router.post('/yard/music', auth.requireAuth, (req, res) => {
+  const leftMin = yardCooldownLeft(req.user.id, 'music');
+  if (leftMin) return res.status(429).json({ error: 'cooldown', leftMin });
   const r = chickenEngine.yardAction(req.user.id, 'music');
-  diary(req.user.id, 'care', '给鸡舍放了音乐，全体心情 +10');
+  diary(req.user.id, 'care', `给鸡舍放了音乐，全体心情 +10（${r.affected} 只）`);
   res.json({ ok: true, ...r });
 });
 
@@ -227,18 +250,38 @@ router.post('/yard/feed-all', auth.requireAuth, (req, res) => {
        WHERE a.user_id = ? AND a.released_at IS NULL AND c.satiety < 100`
     )
     .all(req.user.id);
+  if (!rows.length) return res.json({ ok: true, fed: 0, feedLeft: user.feed, text: '大家都不饿' });
+  if (!user || user.feed < 1) return res.status(400).json({ error: 'no_feed' });
+
+  // 一次加餐喂全场：同样必须附素材（一份报告或一条心得），但成长加成递减
+  const mat = takeMaterial(req, { minLen: NOTE_MIN.feed, kind: 'feed', fundCode: '', adoptionId: null });
+  if (mat.error) return res.status(400).json({ error: mat.error, minLen: mat.minLen });
+  const matAll = { ...mat, bonus: Math.max(1, (mat.bonus || 0) - 2) };
+
   let fed = 0;
+  let cooling = 0;
+  let hungry = 0;
   for (const r of rows) {
     if (user.feed <= fed) break;
-    const out = chickenEngine.interact(r.id, 'feed', req.user.id);
+    const out = chickenEngine.interact(r.id, 'feed', req.user.id, matAll);
     if (out.ok) {
       fed++;
       tasks.bump(req.user.id, 'feed_3', 1);
     } else if (out.error === 'cooldown') {
-      continue;
+      cooling++;
     } else break;
   }
-  res.json({ ok: true, fed, feedLeft: user.feed - fed });
+  hungry = rows.length;
+  if (fed) diary(req.user.id, 'care', `用同一份${mat.label}给 ${fed} 只鸡加餐`, null);
+  res.json({
+    ok: true,
+    fed,
+    cooling,
+    hungry,
+    feedLeft: user.feed - fed,
+    material: mat.label,
+    text: fed ? `喂了 ${fed} 只鸡` : cooling ? '它们刚吃过，还在冷却中' : '大家都不饿',
+  });
 });
 
 router.get('/diary', auth.requireAuth, (req, res) => {
@@ -445,6 +488,8 @@ router.post('/funds/:code/restore', auth.requireAuth, (req, res) => {
 
 router.get('/funds/:code', auth.requireAuth, async (req, res) => {
   const code = String(req.params.code);
+  // 「巡视鸡舍」要求真的点开一只鸡看持仓详情，而不是打开页面就算完
+  tasks.bump(req.user.id, 'check_yard', 1);
   const a = getAdoption(req.user.id, code);
   const info = await quote.getFundInfo(code);
   const hist = await quote.getHistory(code, 60);
@@ -458,6 +503,7 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
       history: hist.items,
       historyStale: !!hist.stale,
       reports: [],
+      notes: [],
     });
   }
   const c = chickenEngine.getChicken(a.id);
@@ -506,6 +552,10 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
     chicken: c ? chickenEngine.publicChicken(c) : null,
     trades,
     reports,
+    notes: db
+      .prepare('SELECT * FROM notes WHERE user_id = ? AND fund_code = ? ORDER BY created_at DESC LIMIT 30')
+      .all(req.user.id, code)
+      .map(publicNote),
   });
 });
 
@@ -552,28 +602,161 @@ router.delete('/funds/:code/trades/:tradeId', auth.requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ============================ 投研素材：心得 / 笔记 ============================ */
+
+/** 字数按字符计（中文按 1 个计），用于素材最小长度校验 */
+function countChars(s) {
+  return [...String(s || '')].length;
+}
+
+const NOTE_MIN = { feed: 20, pat: 10 };
+
+function publicNote(n) {
+  const f = n.fund_code ? db.prepare('SELECT name FROM funds WHERE code = ?').get(n.fund_code) : null;
+  return {
+    id: n.id,
+    fundCode: n.fund_code || '',
+    fundName: f ? f.name : null,
+    kind: n.kind,
+    content: n.content,
+    reportId: n.report_id || null,
+    createdAt: n.created_at,
+  };
+}
+
+/**
+ * 取一次互动所需的投研素材：关联一份报告，或新写一条心得。
+ * 这是「养鸡必须有实际投入」的落点：喂食/安抚都不能只点一下。
+ * @returns {{error?:string,minLen?:number,kind?:string,label?:string,bonus?:number,noteId?:string,reportId?:string}}
+ */
+function takeMaterial(req, { minLen, kind, fundCode, adoptionId }) {
+  const body = req.body || {};
+  const reportId = String(body.report_id || '').trim();
+  if (reportId) {
+    const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId);
+    if (!r || r.user_id !== req.user.id) return { error: 'bad_report' };
+    if (fundCode && !r.fund_code) {
+      // 没关联基金的报告，顺手挂到被投喂的这只鸡上
+      const adoption = getAdoption(req.user.id, fundCode);
+      db.prepare('UPDATE reports SET fund_code = ?, adoption_id = ? WHERE id = ?').run(
+        fundCode,
+        (adoption || {}).id || null,
+        r.id
+      );
+    }
+    return {
+      kind: 'report',
+      reportId: r.id,
+      reportTitle: r.title,
+      label: `报告《${r.title}》`,
+      bonus: kind === 'mood' ? 2 : 5,
+    };
+  }
+
+  const content = String(body.note || '').trim().replace(/\s+/g, ' ');
+  if (countChars(content) < minLen) return { error: 'need_material', minLen };
+  const noteId = gid('nt');
+  db.prepare(
+    'INSERT INTO notes (id, user_id, adoption_id, fund_code, kind, content, report_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(noteId, req.user.id, adoptionId || null, fundCode || null, kind, content.slice(0, 2000), null, nowISO());
+  return {
+    kind: 'note',
+    noteId,
+    label: kind === 'mood' ? '心态笔记' : '投资心得',
+    bonus: kind === 'mood' ? 1 : 3,
+  };
+}
+
+/** 我的心得列表（可按基金过滤） */
+router.get('/notes', auth.requireAuth, (req, res) => {
+  const code = String(req.query.code || '').trim();
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+  const rows = code
+    ? db
+        .prepare('SELECT * FROM notes WHERE user_id = ? AND fund_code = ? ORDER BY created_at DESC LIMIT ?')
+        .all(req.user.id, code, limit)
+    : db.prepare('SELECT * FROM notes WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').all(req.user.id, limit);
+  res.json({ ok: true, items: rows.map(publicNote), count: rows.length });
+});
+
+/** 写一条投资心得 */
+router.post('/notes', auth.requireAuth, (req, res) => {
+  const body = req.body || {};
+  const content = String(body.content || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (countChars(content) < 10) return res.status(400).json({ error: 'note_too_short', minLen: 10 });
+  const code = String(body.fund_code || '').trim();
+  if (code && !CODE_RE.test(code)) return res.status(400).json({ error: 'bad_fund_code' });
+  const adoption = code ? getAdoption(req.user.id, code) : null;
+  const noteId = gid('nt');
+  db.prepare(
+    'INSERT INTO notes (id, user_id, adoption_id, fund_code, kind, content, report_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(noteId, req.user.id, (adoption || {}).id || null, code || null, 'note', content.slice(0, 2000), null, nowISO());
+  const rewarded = tasks.bump(req.user.id, 'note_1', 1);
+  diary(req.user.id, 'report', `写下了投资心得${code ? '（' + code + '）' : ''}`, (adoption || {}).id || null);
+  res.status(201).json({
+    ok: true,
+    note: publicNote(db.prepare('SELECT * FROM notes WHERE id = ?').get(noteId)),
+    rewarded,
+  });
+});
+
+router.delete('/notes/:id', auth.requireAuth, (req, res) => {
+  const n = db.prepare('SELECT * FROM notes WHERE id = ?').get(req.params.id);
+  if (!n || n.user_id !== req.user.id) return res.status(404).json({ error: 'not_found' });
+  db.prepare('DELETE FROM notes WHERE id = ?').run(n.id);
+  res.json({ ok: true });
+});
+
 /* ============================ 互动 ============================ */
 
 router.post('/chickens/:id/interact', auth.requireAuth, (req, res) => {
   const action = String((req.body || {}).action || '');
   if (!['feed', 'pat'].includes(action)) return res.status(400).json({ error: 'bad_action' });
-  const out = chickenEngine.interact(req.params.id, action, req.user.id);
+
+  const pre = chickenEngine.checkCooldown(req.params.id, action, req.user.id);
+  if (pre.error) {
+    const code = { not_found: 404, cooldown: 429 }[pre.error] || 400;
+    return res.status(code).json({ error: pre.error, leftMin: pre.leftMin });
+  }
+  const chicken = pre.chicken;
+
+  if (action === 'feed') {
+    const u = db.prepare('SELECT feed FROM users WHERE id = ?').get(req.user.id);
+    if (!u || u.feed < 1) return res.status(400).json({ error: 'no_feed' });
+  }
+
+  // 喂食 / 安抚必须附一份投研素材：报告 或 心得
+  const mat = takeMaterial(req, {
+    minLen: NOTE_MIN[action],
+    kind: action === 'feed' ? 'feed' : 'mood',
+    fundCode: chicken.fund_code,
+    adoptionId: chicken.adoption_id,
+  });
+  if (mat.error) return res.status(400).json({ error: mat.error, minLen: mat.minLen });
+
+  const out = chickenEngine.interact(req.params.id, action, req.user.id, mat);
   if (out.error) {
     const code = { not_found: 404, cooldown: 429, no_feed: 400, bad_action: 400 }[out.error] || 400;
     return res.status(code).json({ error: out.error, leftMin: out.leftMin });
   }
-  if (action === 'feed') tasks.bump(req.user.id, 'feed_3', 1);
-  const chicken = db.prepare('SELECT * FROM chickens WHERE id = ?').get(req.params.id);
-  const adoption = db.prepare('SELECT * FROM adoptions WHERE id = ?').get(chicken.adoption_id);
-  if (adoption) {
+
+  const name = chicken.nickname || chicken.fund_code;
+  if (action === 'feed') {
+    tasks.bump(req.user.id, 'feed_3', 1);
+    diary(req.user.id, 'care', `给 ${name} 加餐：${mat.label}`, chicken.adoption_id);
+  } else {
+    diary(req.user.id, 'care', `安抚了 ${name}：记下一条 ${mat.label}`, chicken.adoption_id);
     const worst = db
       .prepare(
         `SELECT a.fund_code FROM adoptions a JOIN daily_events e ON e.adoption_id = a.id
          WHERE a.user_id = ? AND e.date = ? ORDER BY e.pct ASC LIMIT 1`
       )
       .get(req.user.id, today());
-    if (action === 'pat' && worst && worst.fund_code === adoption.fund_code) tasks.bump(req.user.id, 'pat_sad', 1);
+    if (worst && worst.fund_code === chicken.fund_code) tasks.bump(req.user.id, 'pat_sad', 1);
   }
+
   const achs = achEngine.check(req.user.id, {});
   res.json({ ok: true, ...out, newAchievements: achs });
 });
@@ -1135,6 +1318,9 @@ router.get('/capabilities', (req, res) => {
       { method: 'GET', path: '/reports/{id}/raw', desc: '报告原文（HTML 报告以 text/html 返回，带 CSP）' },
       { method: 'PATCH', path: '/reports/{id}', desc: '修改报告或关联到某只基金' },
       { method: 'DELETE', path: '/reports/{id}', desc: '删除报告' },
+      { method: 'GET', path: '/notes', desc: '投资心得 / 投研笔记列表' },
+      { method: 'POST', path: '/notes', desc: '写一条投资心得（content ≥ 10 字）' },
+      { method: 'POST', path: '/chickens/{id}/interact', desc: '喂食 / 安抚（必须附 report_id 或 note）' },
       { method: 'GET', path: '/achievements', desc: '成就与解锁状态' },
     ],
     disclaimer: '数据来自第三方公开接口，可能存在延迟或误差；本工具不构成投资建议。',

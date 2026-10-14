@@ -97,6 +97,22 @@ data/                  SQLite 库与上传的报告（已 gitignore）
 - 鸡舍天气由上证指数涨跌映射（晴 / 多云 / 阴 / 雨），影响全体心情。
 - **等级只与陪伴时长和照料投入有关，与收益率无关**（产品价值观，勿改）。
 
+## 照料与投研素材（互动要有实际投入）
+
+互动不是点一下就完事，每次照料都必须留下真实的投研痕迹：
+
+| 动作 | 前置要求 | 效果 |
+| --- | --- | --- |
+| 喂食 🌾 | 必须附一份**报告**（`report_id`）或一条 **≥20 字投资心得**（`note`） | 饱食 +25 / 亲密 +3 / 成长 2 + 加成（报告 +5，心得 +3） |
+| 抚摸 🤲 | 必须写一条 **≥10 字心态笔记** | 心情 +15 / 亲密 +2 / 成长 1 + 加成（心得 +1），并解除情绪低谷 |
+| 喂全场 🌾🌾 | 同一份素材（报告或 ≥20 字心得），成长加成递减 | 依次喂饱所有不饿的鸡 |
+| 打扫 🧹 | 必须先把所有**饿了 / 打蔫**的鸡照料好（冷却中的鸡不算欠照料），且有 6 小时冷却 | 全体健康 +8 / 心情 +5 |
+| 音乐 🎵 | 4 小时冷却 | 全体心情 +10 |
+
+- 素材会写入「投研时间线」：基金详情页的「投研心得」区可查看与删除（`GET/POST /notes`、`DELETE /notes/{id}`）
+- 用报告加餐时，若该报告还没关联基金，会自动挂到被投喂的这只鸡上
+- 每日任务随之升级为真实动作：投研喂食 ×3、写下投资心得、巡视鸡舍（打开鸡舍 + 点开一只鸡详情）、打扫鸡舍（先照料再打扫）
+
 ## 主要接口
 
 统一前缀 `/api/v1`，支持 Cookie 会话或 `Authorization: Bearer <API_KEY>`。
@@ -106,10 +122,12 @@ data/                  SQLite 库与上传的报告（已 gitignore）
 | GET | `/health` | 健康检查（含 AI 配置与数据源成功率） |
 | POST | `/auth/register` `/auth/login` `/auth/guest` `/auth/logout` | 账号 |
 | GET | `/yard` | 鸡舍总览：天气、盈亏、鸡群、事件、任务、提醒 |
-| POST | `/yard/clean` `/yard/music` `/yard/feed-all` | 全场互动 |
+| POST | `/yard/clean` `/yard/music` `/yard/feed-all` | 全场互动（打扫有前置照料校验，喂全场需附素材） |
 | GET/POST | `/funds` | 自选列表 / 领养 |
-| GET/PATCH/DELETE | `/funds/{code}` | 基金详情 / 编辑 / 放归 |
-| POST | `/chickens/{id}/interact` | 喂食 / 抚摸 |
+| GET/PATCH/DELETE | `/funds/{code}` | 基金详情（含报告与投研心得）/ 编辑 / 放归 |
+| POST | `/chickens/{id}/interact` | 喂食 / 抚摸（必须附 `report_id` 或 `note`） |
+| GET/POST | `/notes` | 投研心得 / 心态笔记列表与新增 |
+| DELETE | `/notes/{id}` | 删除心得 |
 | GET/POST | `/groups` | 分组 |
 | GET | `/funds/{code}/reports` / POST | 某基金的报告列表 / 上传（multipart 或 JSON） |
 | GET | `/reports` | 全站报告库（`q` 搜索、`status`、`link=none\|linked` 筛选） |

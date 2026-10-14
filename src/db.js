@@ -228,6 +228,20 @@ CREATE TABLE IF NOT EXISTS feed_ledger (
   reason     TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- 投资心得 / 投研笔记：喂食与安抚必须附上素材，让互动留下真实的思考轨迹
+CREATE TABLE IF NOT EXISTS notes (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  adoption_id TEXT,
+  fund_code   TEXT,
+  kind        TEXT NOT NULL DEFAULT 'note',
+  content     TEXT NOT NULL,
+  report_id   TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_notes_fund ON notes(user_id, fund_code);
 `);
 
 const ACHIEVEMENTS = [
@@ -251,12 +265,13 @@ const ACHIEVEMENTS = [
 ];
 
 const TASKS = [
-  ['feed_3', '喂饱三只鸡', '给 3 只鸡喂食', 3, 3, 2],
-  ['pat_sad', '安慰一下', '给今天跌得最多的鸡抚摸一次', 1, 3, 3],
-  ['check_yard', '巡视鸡舍', '打开一次鸡舍看看它们', 1, 2, 1],
+  ['feed_3', '投研喂食', '给 3 只鸡加餐（每次附一份报告或一条 ≥20 字心得）', 3, 3, 2],
+  ['pat_sad', '安慰一下', '给今天跌得最多的鸡写下一条安抚笔记（≥10 字）', 1, 3, 3],
+  ['check_yard', '巡视鸡舍', '打开鸡舍，并点开任意一只鸡看持仓详情', 2, 2, 1],
   ['read_report', '读一份报告', '打开任意一份研究报告', 1, 5, 3],
-  ['clean_yard', '打扫鸡舍', '完成一次鸡舍打扫', 1, 3, 2],
+  ['clean_yard', '打扫鸡舍', '先照料所有饿了/打蔫的鸡，再打扫一次鸡舍', 1, 3, 2],
   ['add_fund', '研究一只新基', '领养一只新基金或查看一只观察区的基', 1, 3, 2],
+  ['note_1', '写下投资心得', '在任意基金下写一条 ≥20 字的投资心得', 1, 3, 2],
 ];
 
 /* ---------- 轻量迁移：管理员标记 ---------- */
@@ -301,12 +316,15 @@ if (!reportCols.includes('content_type')) {
 const insertAch = db.prepare(
   'INSERT OR IGNORE INTO achievements (code, name, desc, category, condition, reward) VALUES (?, ?, ?, ?, ?, ?)'
 );
-const insertTask = db.prepare(
-  'INSERT OR IGNORE INTO tasks (code, name, desc, target, reward, growth) VALUES (?, ?, ?, ?, ?, ?)'
+// 任务用 upsert：改动任务文案/目标数后重启即可生效（不覆盖用户进度）
+const upsertTask = db.prepare(
+  `INSERT INTO tasks (code, name, desc, target, reward, growth) VALUES (?, ?, ?, ?, ?, ?)
+   ON CONFLICT(code) DO UPDATE SET name = excluded.name, desc = excluded.desc,
+     target = excluded.target, reward = excluded.reward, growth = excluded.growth`
 );
 db.transaction(() => {
   for (const a of ACHIEVEMENTS) insertAch.run(...a);
-  for (const t of TASKS) insertTask.run(...t);
+  for (const t of TASKS) upsertTask.run(...t);
 })();
 
 module.exports = db;

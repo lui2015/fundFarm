@@ -21,6 +21,11 @@ async function loadAdoptions(force) {
   return adoptions;
 }
 
+/** 供其他页面（加餐弹窗等）复用：确保已领养基金列表新鲜 */
+export async function ensureAdoptions() {
+  return loadAdoptions(true);
+}
+
 function buildQs() {
   const p = new URLSearchParams();
   if (filter.q) p.set('q', filter.q);
