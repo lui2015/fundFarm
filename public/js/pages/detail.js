@@ -3,7 +3,7 @@ import { chickenSVG } from '../chicken.js';
 import { esc, pct, pctClass, fmtAmount, money, fmtDate, toast, modal, confirmBox, copyText, sparkline } from '../util.js';
 import { getState } from '../app.js';
 import { showAchievements } from './yard.js';
-import { uploadModal, linkReportModal, viewModal } from './reports.js';
+import { uploadModal, linkReportModal, viewModal, reportExcerpt } from './reports.js';
 import { feedModal, patModal, noteModal } from './care.js';
 
 let data = null;
@@ -198,14 +198,17 @@ function noteItemHtml(n) {
 }
 
 function reportItemHtml(r) {
-  const p = r.parse;
+  const excerpt = reportExcerpt(r, 140);
   return `<div class="report-item" data-report="${esc(r.id)}">
     <div style="display:flex;gap:8px;align-items:flex-start">
-      <div style="flex:1">
+      <div style="flex:1;min-width:0">
         <div class="ri-title">${esc(r.title)}</div>
-        <div class="muted" style="font-size:12px">${esc(r.reportDate || '')} · ${esc(r.source || '')} ${
-    r.status === 'parsing' ? '· 解析中…' : r.status === 'failed' ? '· 解析失败' : ''
-  }</div>
+        <div class="muted" style="font-size:12px">
+          ${esc(r.reportDate || '')}${
+    { html: ' · HTML', markdown: ' · Markdown', text: ' · 文本', file: ' · 文件' }[r.contentType || ''] || ''
+  }
+        </div>
+        ${excerpt ? `<div class="ri-excerpt">${esc(excerpt)}</div>` : ''}
         ${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
@@ -213,28 +216,6 @@ function reportItemHtml(r) {
         <button class="btn ghost small" data-del="${esc(r.id)}">删除</button>
       </div>
     </div>
-    ${
-      p
-        ? `<div style="margin-top:8px;font-size:14px">${esc(p.summary || '')}</div>
-           ${
-             (p.keyPoints || []).length
-               ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:13px">${p.keyPoints
-                   .map((k) => `<li>${esc(k)}</li>`)
-                   .join('')}</ul>`
-               : ''
-           }
-           ${
-             (p.risks || []).length
-               ? `<div style="font-size:13px;margin-top:6px"><b>风险：</b>${p.risks.map((k) => esc(k)).join('；')}</div>`
-               : ''
-           }
-           <div class="muted" style="font-size:11px;margin-top:6px">模型 ${esc(p.model || '')} · 置信度 ${
-             p.confidence === null ? '--' : Math.round(p.confidence * 100) + '%'
-           }</div>`
-        : r.content
-        ? `<div class="muted" style="font-size:13px;margin-top:6px">${esc(r.content.slice(0, 120))}…</div>`
-        : ''
-    }
   </div>`;
 }
 

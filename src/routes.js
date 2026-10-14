@@ -942,7 +942,7 @@ function createReportHandler(resolveFundCode) {
       res.status(201).json({ ok: true, report, newAchievements: achs });
 
       if (wantParse && text) {
-        parseInBackground(reportId, text, req.user.id, fundCode);
+        parseInBackground(reportId, text, req.user.id, fundCode, contentType);
       } else if (wantParse && !text) {
         db.prepare('UPDATE reports SET status = ? WHERE id = ?').run('done', reportId);
       }
@@ -1034,18 +1034,37 @@ router.patch('/reports/:id', auth.requireAuth, (req, res) => {
   res.json({ ok: true, report: publicReport(db.prepare('SELECT * FROM reports WHERE id = ?').get(r.id)) });
 });
 
-async function parseInBackground(reportId, text, userId, fundCode) {
+/** 去标签：AI 解析的输入与输出都不该带 HTML 标签（HTML 报告解析后会变成一堆尖括号） */
+function stripTags(s) {
+  return String(s || '')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#\d+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function parseInBackground(reportId, text, userId, fundCode, contentType) {
   try {
     const fund = db.prepare('SELECT name FROM funds WHERE code = ?').get(fundCode);
-    const result = await ai.parseReport(text, fund?.name || fundCode, userId);
+    const input = contentType === 'html' ? stripTags(text) : text;
+    const result = await ai.parseReport(input, fund?.name || fundCode, userId);
     db.prepare(
       `INSERT OR REPLACE INTO report_parses (report_id, summary, key_points, risks, sentiment, rating, confidence, model, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       reportId,
-      result.summary || '',
-      JSON.stringify(result.key_points || []),
-      JSON.stringify(result.risks || []),
+      stripTags(result.summary),
+      JSON.stringify((result.key_points || []).map((k) => stripTags(k)).filter(Boolean)),
+      JSON.stringify((result.risks || []).map((k) => stripTags(k)).filter(Boolean)),
       result.sentiment || 'neutral',
       result.rating || null,
       result.confidence ?? null,
@@ -1098,7 +1117,7 @@ router.post('/reports/:id/reparse', auth.requireAuth, (req, res) => {
   if (!r.content) return res.status(400).json({ error: 'no_text' });
   db.prepare('UPDATE reports SET status = ? WHERE id = ?').run('parsing', r.id);
   res.json({ ok: true });
-  parseInBackground(r.id, r.content, req.user.id, r.fund_code);
+  parseInBackground(r.id, r.content, req.user.id, r.fund_code, r.content_type);
 });
 
 router.delete('/reports/:id', auth.requireAuth, (req, res) => {

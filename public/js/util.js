@@ -100,6 +100,31 @@ export function confirmBox(title, text, onOk) {
   );
 }
 
+/**
+ * 把 HTML（或带标签的富文本）转成用户能读的纯文本：
+ * 去掉 script/style、标签与常见实体，压缩空白，可截断。
+ */
+export function plainText(s, max = 0) {
+  let t = String(s || '');
+  t = t.replace(/<head[\s\S]*?<\/head>/gi, ' '); // head 里只有 title/meta/style，不是给人看的内容
+  t = t.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ');
+  t = t.replace(/<!--[\s\S]*?-->/g, ' ');
+  t = t.replace(/<[^>]*>/g, ' ');
+  t = t
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+  t = t
+    .replace(/&#\d+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (max && [...t].length > max) t = [...t].slice(0, max).join('') + '…';
+  return t;
+}
+
 export function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) {
     return navigator.clipboard.writeText(text);

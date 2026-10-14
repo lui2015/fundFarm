@@ -703,6 +703,17 @@ textarea.input {
   background: var(--green-soft);
 }
 
+.ri-excerpt {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #4a4a4a;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .note-item {
   border: 1px solid var(--line);
   border-radius: 12px;

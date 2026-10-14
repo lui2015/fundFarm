@@ -1,5 +1,5 @@
 import { Api } from '../api.js';
-import { esc, toast, modal, confirmBox, fmtDate, copyText } from '../util.js';
+import { esc, toast, modal, confirmBox, fmtDate, copyText, plainText } from '../util.js';
 import { showAchievements } from './yard.js';
 
 let data = null;
@@ -41,12 +41,26 @@ async function rerender() {
   await mount(root);
 }
 
-const STATUS_TEXT = {
-  done: ['已解析', 'tag'],
-  parsing: ['解析中', 'tag'],
-  pending: ['待解析', 'tag'],
-  failed: ['解析失败', 'tag'],
-};
+/**
+ * 报告正文/解析结果里的文本清理：HTML 报告只保留人可读的纯文本，
+ * 列表与详情都只展示「看得懂的内容」，原始标签留给「查看源码」。
+ */
+export function cleanReportText(r, s) {
+  const isHtml = (r && r.contentType) === 'html';
+  const t = isHtml ? plainText(s) : String(s || '').replace(/\s+/g, ' ').trim();
+  return t;
+}
+
+/** 列表用的一段可读摘要（优先 AI 摘要 → 首个要点 → 正文），不展示标签与解析状态 */
+export function reportExcerpt(r, max = 140) {
+  const p = r.parse || {};
+  const cands = [p.summary, (p.keyPoints || [])[0], r.content];
+  for (const c of cands) {
+    const t = cleanReportText(r, c);
+    if (t) return max ? plainText(t, max) : t;
+  }
+  return '';
+}
 
 /* ---------------- 渲染 ---------------- */
 
@@ -58,8 +72,6 @@ export async function render() {
 
   const chips = [
     { label: '全部', status: '', link: '' },
-    { label: '已解析', status: 'done', link: '' },
-    { label: '解析中', status: 'parsing', link: '' },
     { label: '未关联', status: '', link: 'none' },
     { label: '已关联', status: '', link: 'linked' },
   ]
@@ -100,8 +112,6 @@ export async function render() {
 }
 
 function reportCard(r) {
-  const p = r.parse;
-  const st = STATUS_TEXT[r.status] || ['未知', 'tag'];
   const typeTag =
     { html: 'HTML', markdown: 'Markdown', text: '文本', file: '文件' }[r.contentType || ''] || '';
   const linkLabel = r.fundCode
@@ -109,30 +119,18 @@ function reportCard(r) {
        ${r.adopted ? '' : '<span class="tag">未领养</span>'}
        <span class="muted">${esc(r.fundCode)}</span>`
     : '<span class="muted">未关联基金</span>';
+  const excerpt = reportExcerpt(r, 140);
   return `<div class="report-item" data-id="${esc(r.id)}">
-    <div style="display:flex;gap:8px;align-items:flex-start">
-      <div style="flex:1;min-width:0">
-        <div class="ri-title">${esc(r.title)}</div>
-        <div class="muted" style="font-size:12px;margin-top:2px">
-          ${linkLabel} · ${esc(fmtDate(r.reportDate))} · ${esc(st[0])}${
-    typeTag ? ' · <span class="tag">' + typeTag + '</span>' : ''
-  }${r.fileName ? ' · ' + esc(r.fileName) : ''}
-        </div>
-        <div style="margin-top:4px">${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-      </div>
+    <div class="ri-title">${esc(r.title)}</div>
+    <div class="muted" style="font-size:12px;margin-top:2px">
+      ${linkLabel} · ${esc(fmtDate(r.reportDate))}${typeTag ? ' · <span class="tag">' + typeTag + '</span>' : ''}${
+    r.fileName ? ' · ' + esc(r.fileName) : ''
+  }
     </div>
+    ${excerpt ? `<div class="ri-excerpt">${esc(excerpt)}</div>` : ''}
     ${
-      p
-        ? `<div style="margin-top:8px;font-size:14px">${esc(p.summary || '')}</div>
-           ${
-             (p.keyPoints || []).length
-               ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:13px">${p.keyPoints
-                   .map((k) => `<li>${esc(k)}</li>`)
-                   .join('')}</ul>`
-               : ''
-           }`
-        : r.content
-        ? `<div class="muted" style="font-size:13px;margin-top:6px">${esc(r.content.slice(0, 120))}…</div>`
+      (r.tags || []).length
+        ? `<div style="margin-top:4px">${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>`
         : ''
     }
     <div class="rep-actions">
@@ -425,28 +423,31 @@ export async function viewModal(id, onDone) {
   const typeLabel =
     { html: 'HTML', markdown: 'Markdown', text: '文本', file: '文件' }[r.contentType || 'text'] || '文本';
 
-  const parsedBlock = p
-    ? `<div style="font-size:14px">${esc(p.summary || '')}</div>
+  const summary = cleanReportText(r, p && p.summary);
+  const points = ((p && p.keyPoints) || []).map((k) => cleanReportText(r, k)).filter(Boolean);
+  const risks = ((p && p.risks) || []).map((k) => cleanReportText(r, k)).filter(Boolean);
+
+  const parsedBlock =
+    p && (summary || points.length || risks.length)
+      ? `${summary ? `<div style="font-size:14px">${esc(summary)}</div>` : ''}
        ${
-         (p.keyPoints || []).length
-           ? `<div style="margin-top:8px"><b>要点</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${p.keyPoints
+         points.length
+           ? `<div style="margin-top:8px"><b>要点</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${points
                .map((k) => `<li>${esc(k)}</li>`)
                .join('')}</ul></div>`
            : ''
        }
        ${
-         (p.risks || []).length
-           ? `<div style="margin-top:8px"><b>风险</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${p.risks
+         risks.length
+           ? `<div style="margin-top:8px"><b>风险</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${risks
                .map((k) => `<li>${esc(k)}</li>`)
                .join('')}</ul></div>`
            : ''
        }
        <div class="muted" style="font-size:11px;margin-top:6px">模型 ${esc(p.model || '')} · 置信度 ${
-        p.confidence === null || p.confidence === undefined ? '--' : Math.round(p.confidence * 100) + '%'
-      }</div>`
-    : `<div class="muted" style="font-size:13px">${
-        r.status === 'parsing' ? 'AI 解析中，稍后刷新查看' : '暂无解析结果'
-      }</div>`;
+          p.confidence === null || p.confidence === undefined ? '--' : Math.round(p.confidence * 100) + '%'
+        }</div>`
+      : '';
 
   const sourceBlock = isHtml
     ? `<div style="margin-top:12px">
@@ -477,7 +478,7 @@ export async function viewModal(id, onDone) {
       r.fileName ? ' · ' + esc(r.fileName) : ''
     }
       </div>
-      <div style="margin-top:10px">${parsedBlock}</div>
+      ${parsedBlock ? `<div style="margin-top:10px">${parsedBlock}</div>` : ''}
       ${sourceBlock}
       <div class="modal-actions">
         ${r.fileName ? '<button class="btn ghost" data-download>下载原文件</button>' : ''}
