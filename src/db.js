@@ -265,6 +265,12 @@ if (!userCols.includes('is_admin')) {
   db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
 }
 
+/* ---------- 轻量迁移：报告内容类型（text / markdown / html / file） ---------- */
+const reportCols = db.prepare('PRAGMA table_info(reports)').all().map((c) => c.name);
+if (!reportCols.includes('content_type')) {
+  db.exec("ALTER TABLE reports ADD COLUMN content_type TEXT NOT NULL DEFAULT 'text'");
+}
+
 /* ---------- 默认管理员种子账号 ---------- */
 (function ensureAdmin() {
   const bcrypt = require('bcryptjs');

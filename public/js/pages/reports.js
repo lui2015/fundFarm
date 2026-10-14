@@ -1,5 +1,5 @@
 import { Api } from '../api.js';
-import { esc, toast, modal, confirmBox, fmtDate } from '../util.js';
+import { esc, toast, modal, confirmBox, fmtDate, copyText } from '../util.js';
 import { showAchievements } from './yard.js';
 
 let data = null;
@@ -97,6 +97,8 @@ export async function render() {
 function reportCard(r) {
   const p = r.parse;
   const st = STATUS_TEXT[r.status] || ['未知', 'tag'];
+  const typeTag =
+    { html: 'HTML', markdown: 'Markdown', text: '文本', file: '文件' }[r.contentType || ''] || '';
   const linkLabel = r.fundCode
     ? `<a href="#/fund/${esc(r.fundCode)}" data-jump="${esc(r.fundCode)}">${esc(r.fundName || r.fundCode)}</a>
        ${r.adopted ? '' : '<span class="tag">未领养</span>'}
@@ -107,7 +109,9 @@ function reportCard(r) {
       <div style="flex:1;min-width:0">
         <div class="ri-title">${esc(r.title)}</div>
         <div class="muted" style="font-size:12px;margin-top:2px">
-          ${linkLabel} · ${esc(fmtDate(r.reportDate))} · ${esc(st[0])}${r.fileName ? ' · ' + esc(r.fileName) : ''}
+          ${linkLabel} · ${esc(fmtDate(r.reportDate))} · ${esc(st[0])}${
+    typeTag ? ' · <span class="tag">' + typeTag + '</span>' : ''
+  }${r.fileName ? ' · ' + esc(r.fileName) : ''}
         </div>
         <div style="margin-top:4px">${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
       </div>
@@ -218,49 +222,149 @@ export function uploadModal(defaultFundCode, onDone) {
       <div class="field"><label>或填写其他基金代码（6 位，选填）</label>
         <input class="input" id="up-code" placeholder="如 005827">
       </div>
+
       <div class="seg" style="margin-bottom:12px">
         <button data-mode="file" class="active">上传文件</button>
         <button data-mode="text">粘贴文本</button>
+        <button data-mode="api">开放接口</button>
       </div>
+
       <div id="up-file">
-        <div class="field"><label>文件（PDF / MD / TXT / 图片，≤20MB）</label>
-          <input class="input" id="up-input" type="file" accept=".pdf,.md,.markdown,.txt,.csv,.png,.jpg,.jpeg,.webp">
+        <div class="field"><label>文件（PDF / MD / TXT / HTML / 图片，≤20MB）</label>
+          <input class="input" id="up-input" type="file" accept=".pdf,.md,.markdown,.txt,.csv,.html,.htm,.png,.jpg,.jpeg,.webp">
         </div>
       </div>
+
       <div id="up-text" style="display:none">
+        <div class="field"><label>内容格式</label>
+          <select class="input" id="up-ctype">
+            <option value="auto">自动识别（推荐）</option>
+            <option value="markdown">Markdown</option>
+            <option value="html">HTML</option>
+            <option value="text">纯文本</option>
+          </select>
+        </div>
         <div class="field"><label>报告正文</label>
-          <textarea class="input" id="up-content" placeholder="粘贴季报、研报内容…"></textarea>
+          <textarea class="input" id="up-content" placeholder="粘贴季报、研报，或 AI 生成的 HTML…"></textarea>
         </div>
       </div>
-      <div class="field"><label>标题</label><input class="input" id="up-title" placeholder="如：2026Q2 季报解读"></div>
-      <div class="grid-2">
-        <div class="field"><label>报告日期</label><input class="input" id="up-date" type="date" value="${new Date()
-          .toISOString()
-          .slice(0, 10)}"></div>
-        <div class="field"><label>标签（逗号分隔）</label><input class="input" id="up-tags" placeholder="季报,AI生成"></div>
+
+      <div id="up-api" style="display:none">
+        <div class="muted" style="font-size:13px">
+          把下面的提示词复制给任意 AI 助手（ChatGPT / 元宝 / Claude…），它会检索资料、生成
+          <b>HTML 报告</b>并直接调用养基场开放接口写入你的报告库。
+        </div>
+        <div class="seg" id="up-pfmt" style="margin:10px 0">
+          <button data-pfmt="html" class="active">HTML 格式（推荐）</button>
+          <button data-pfmt="markdown">Markdown 格式</button>
+        </div>
+        <pre class="prompt-box" id="up-prompt">正在生成提示词…</pre>
+        <div class="grid-2" style="margin-top:10px">
+          <button class="btn" id="up-copy">复制提示词</button>
+          <button class="btn ghost" id="up-refresh">重新生成</button>
+        </div>
+        <div class="ai-note">
+          提示词中的 <b>{API_KEY}</b> 需替换为你自己的密钥：在「我的 → 开发者 API Key」生成（fa_ 前缀）。
+          AI 提交后回到本页刷新即可看到新报告。
+        </div>
+        <details style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:13px">查看开放接口清单</summary>
+          <pre class="prompt-box" id="up-endpoints" style="margin-top:8px"></pre>
+        </details>
       </div>
-      <label style="display:flex;gap:8px;align-items:center;font-size:14px;margin-bottom:10px">
-        <input type="checkbox" id="up-parse" checked style="width:18px;height:18px"> 上传后用 AI 解析要点
-      </label>
-      <button class="btn block" id="up-submit">上传</button>
-      <div class="muted" style="font-size:12px;margin-top:8px">解析由大模型完成，结果仅供参考，不构成投资建议。</div>`,
+
+      <div id="up-meta">
+        <div class="field"><label>标题</label><input class="input" id="up-title" placeholder="如：2026Q2 季报解读"></div>
+        <div class="grid-2">
+          <div class="field"><label>报告日期</label><input class="input" id="up-date" type="date" value="${new Date()
+            .toISOString()
+            .slice(0, 10)}"></div>
+          <div class="field"><label>标签（逗号分隔）</label><input class="input" id="up-tags" placeholder="季报,AI生成"></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:14px;margin-bottom:10px">
+          <input type="checkbox" id="up-parse" checked style="width:18px;height:18px"> 上传后用 AI 解析要点
+        </label>
+        <button class="btn block" id="up-submit">上传</button>
+        <div class="muted" style="font-size:12px;margin-top:8px">解析由大模型完成，结果仅供参考，不构成投资建议。</div>
+      </div>`,
     (body, close) => {
-      const modeBtns = body.querySelectorAll('.seg button');
-      modeBtns.forEach((b) => {
+      let mode = 'file';
+      let promptFmt = 'html';
+      let promptKey = '';
+
+      const panels = {
+        file: body.querySelector('#up-file'),
+        text: body.querySelector('#up-text'),
+        api: body.querySelector('#up-api'),
+      };
+      const meta = body.querySelector('#up-meta');
+
+      const targetCode = () => {
+        const manual = body.querySelector('#up-code').value.trim();
+        return manual || body.querySelector('#up-fund').value || '';
+      };
+
+      const loadPrompt = async (force) => {
+        const box = body.querySelector('#up-prompt');
+        const code = targetCode();
+        const key = code + ':' + promptFmt;
+        if (promptKey === key && !force) return;
+        box.textContent = '正在生成提示词…';
+        try {
+          const out = await Api.aiPrompt(code, promptFmt);
+          promptKey = key;
+          box.textContent = out.prompt;
+          const eps = out.endpoints || [];
+          body.querySelector('#up-endpoints').textContent =
+            `${out.base || ''}/api/v1\n\n` + eps.map((e) => '· ' + e).join('\n');
+        } catch (e) {
+          box.textContent = '生成失败：' + e.message;
+        }
+      };
+
+      const setMode = (m) => {
+        mode = m;
+        body
+          .querySelectorAll('.seg button[data-mode]')
+          .forEach((x) => x.classList.toggle('active', x.getAttribute('data-mode') === m));
+        Object.entries(panels).forEach(([k, el]) => (el.style.display = k === m ? '' : 'none'));
+        meta.style.display = m === 'api' ? 'none' : '';
+        if (m === 'api') loadPrompt(false);
+      };
+
+      body.querySelectorAll('.seg button[data-mode]').forEach((b) => {
+        b.onclick = () => setMode(b.getAttribute('data-mode'));
+      });
+
+      const onTargetChange = () => {
+        if (mode === 'api') loadPrompt(true);
+      };
+      body.querySelector('#up-code').addEventListener('change', onTargetChange);
+      body.querySelector('#up-fund').addEventListener('change', onTargetChange);
+
+      body.querySelectorAll('[data-pfmt]').forEach((b) => {
         b.onclick = () => {
-          const m = b.getAttribute('data-mode');
-          modeBtns.forEach((x) => x.classList.toggle('active', x === b));
-          body.querySelector('#up-file').style.display = m === 'file' ? '' : 'none';
-          body.querySelector('#up-text').style.display = m === 'text' ? '' : 'none';
+          promptFmt = b.getAttribute('data-pfmt');
+          body.querySelectorAll('[data-pfmt]').forEach((x) => x.classList.toggle('active', x === b));
+          loadPrompt(true);
         };
       });
 
+      body.querySelector('#up-copy').onclick = async () => {
+        try {
+          await copyText(body.querySelector('#up-prompt').textContent);
+          toast('提示词已复制，粘贴给 AI 即可');
+        } catch (e) {
+          toast('复制失败，请手动选择文本');
+        }
+      };
+      body.querySelector('#up-refresh').onclick = () => loadPrompt(true);
+
       body.querySelector('#up-submit').onclick = async () => {
-        const isFile = body.querySelector('#up-file').style.display !== 'none';
+        const isFile = mode === 'file';
         const manual = body.querySelector('#up-code').value.trim();
-        const selected = body.querySelector('#up-fund').value;
         if (manual && !/^\d{6}$/.test(manual)) return toast('基金代码需为 6 位数字');
-        const fundCode = manual || selected;
+        const fundCode = manual || body.querySelector('#up-fund').value;
 
         const form = new FormData();
         form.append('fund_code', fundCode);
@@ -275,6 +379,8 @@ export function uploadModal(defaultFundCode, onDone) {
         } else {
           const content = body.querySelector('#up-content').value;
           if (!content.trim()) return toast('请粘贴报告内容');
+          const ct = body.querySelector('#up-ctype').value;
+          if (ct !== 'auto') form.append('content_type', ct);
           form.append('content', content);
           form.append('source', 'text');
         }
@@ -310,48 +416,66 @@ export async function viewModal(id, onDone) {
     return toast('加载失败：' + e.message);
   }
   const p = r.parse;
+  const isHtml = (r.contentType || '') === 'html';
+  const typeLabel =
+    { html: 'HTML', markdown: 'Markdown', text: '文本', file: '文件' }[r.contentType || 'text'] || '文本';
+
+  const parsedBlock = p
+    ? `<div style="font-size:14px">${esc(p.summary || '')}</div>
+       ${
+         (p.keyPoints || []).length
+           ? `<div style="margin-top:8px"><b>要点</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${p.keyPoints
+               .map((k) => `<li>${esc(k)}</li>`)
+               .join('')}</ul></div>`
+           : ''
+       }
+       ${
+         (p.risks || []).length
+           ? `<div style="margin-top:8px"><b>风险</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${p.risks
+               .map((k) => `<li>${esc(k)}</li>`)
+               .join('')}</ul></div>`
+           : ''
+       }
+       <div class="muted" style="font-size:11px;margin-top:6px">模型 ${esc(p.model || '')} · 置信度 ${
+        p.confidence === null || p.confidence === undefined ? '--' : Math.round(p.confidence * 100) + '%'
+      }</div>`
+    : `<div class="muted" style="font-size:13px">${
+        r.status === 'parsing' ? 'AI 解析中，稍后刷新查看' : '暂无解析结果'
+      }</div>`;
+
+  const sourceBlock = isHtml
+    ? `<div style="margin-top:12px">
+         <div style="font-weight:700;font-size:14px;margin-bottom:6px">报告预览</div>
+         <iframe class="html-preview" sandbox title="HTML 报告预览" src="api/v1/reports/${encodeURIComponent(
+           r.id
+         )}/raw"></iframe>
+         <div class="muted" style="font-size:11px;margin-top:4px">HTML 报告以沙箱方式渲染：不执行脚本、不加载外部资源</div>
+         <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">查看 HTML 源码</summary>
+           <pre class="prompt-box" style="margin-top:8px">${esc(r.content || '')}</pre></details>
+       </div>`
+    : r.content
+    ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px">查看报告原文</summary>
+         <pre class="prompt-box" style="margin-top:8px">${esc(r.content)}</pre></details>`
+    : '';
+
   modal(
     r.title,
     () => `
       <div class="muted" style="font-size:12px">
-        ${r.fundCode ? `<a href="#/fund/${esc(r.fundCode)}" data-jump2="${esc(r.fundCode)}">${esc(r.fundName || r.fundCode)}</a> · ${esc(r.fundCode)} · ` : '未关联基金 · '}
-        ${esc(fmtDate(r.reportDate))} · ${esc(r.source || '')}${r.fileName ? ' · ' + esc(r.fileName) : ''}
-      </div>
-      <div style="margin-top:10px">
         ${
-          p
-            ? `<div style="font-size:14px">${esc(p.summary || '')}</div>
-               ${
-                 (p.keyPoints || []).length
-                   ? `<div style="margin-top:8px"><b>要点</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${p.keyPoints
-                       .map((k) => `<li>${esc(k)}</li>`)
-                       .join('')}</ul></div>`
-                   : ''
-               }
-               ${
-                 (p.risks || []).length
-                   ? `<div style="margin-top:8px"><b>风险</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${p.risks
-                       .map((k) => `<li>${esc(k)}</li>`)
-                       .join('')}</ul></div>`
-                   : ''
-               }
-               <div class="muted" style="font-size:11px;margin-top:6px">模型 ${esc(p.model || '')} · 置信度 ${
-                 p.confidence === null || p.confidence === undefined ? '--' : Math.round(p.confidence * 100) + '%'
-               }</div>`
-            : `<div class="muted" style="font-size:13px">${
-                r.status === 'parsing' ? 'AI 解析中，稍后刷新查看' : '暂无解析结果'
-              }</div>`
-        }
+          r.fundCode
+            ? `<a href="#/fund/${esc(r.fundCode)}" data-jump2="${esc(r.fundCode)}">${esc(
+                r.fundName || r.fundCode
+              )}</a> · ${esc(r.fundCode)} · `
+            : '未关联基金 · '
+        }${esc(fmtDate(r.reportDate))} · ${esc(typeLabel)} · ${esc(r.source || '')}${
+      r.fileName ? ' · ' + esc(r.fileName) : ''
+    }
       </div>
-      ${
-        r.content
-          ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px">查看报告原文</summary>
-              <pre style="white-space:pre-wrap;font-size:12px;background:#fffdf8;border:1px solid var(--line);border-radius:12px;padding:10px;max-height:32vh;overflow:auto">${esc(
-                r.content
-              )}</pre></details>`
-          : ''
-      }
+      <div style="margin-top:10px">${parsedBlock}</div>
+      ${sourceBlock}
       <div class="modal-actions">
+        ${r.fileName ? '<button class="btn ghost" data-download>下载原文件</button>' : ''}
         ${r.content ? '<button class="btn ghost" data-reparse>重新解析</button>' : ''}
         <button class="btn" data-close>关闭</button>
       </div>
@@ -377,6 +501,9 @@ export async function viewModal(id, onDone) {
             toast('失败：' + e.message);
           }
         };
+      const dl = body.querySelector('[data-download]');
+      if (dl)
+        dl.onclick = () => window.open('api/v1/reports/' + encodeURIComponent(r.id) + '/download', '_blank');
     }
   );
 }

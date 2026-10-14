@@ -59,9 +59,21 @@ data/                  SQLite 库与上传的报告（已 gitignore）
 导航中「报告」页是报告总库：
 
 - 列出全部已上传报告，支持关键词搜索（标题/基金名/代码）与筛选（全部 / 已解析 / 解析中 / 未关联 / 已关联）
-- **新增**：可关联到某只已领养基金、填写其他基金代码，或「暂不关联」先存档；支持文件或粘贴文本，可选 AI 解析
+- **新增**（三种方式）：
+  - `上传文件`：PDF / MD / TXT / CSV / **HTML** / 图片，≤20MB
+  - `粘贴文本`：直接粘贴 Markdown、纯文本或 HTML 源码（格式可选「自动识别」）
+  - `开放接口`：生成给 AI 的调用提示词，复制给任意 AI 助手即可让它生成报告并调用开放接口写入报告库（见下）
 - **查看 / 重新解析 / 删除**：查看弹窗展示 AI 摘要、要点、风险、置信度与报告原文
 - **关联管理**：未关联的报告可一键「关联基金」，已关联的可「更换关联」
+
+### 开放接口与 AI 提示词
+
+「新增报告 → 开放接口」提供两份可一键复制的提示词（HTML 格式为默认且重点支持）：
+
+- 提示词内含完整接口说明（端点、Header、请求体 JSON 示例、错误码约定）
+- HTML 版要求 AI 输出**自包含 HTML**：样式写在 `<style>` 内联标签、不引用外部 CDN / 图片 / 字体、**不含 `<script>`**、移动端友好、结尾附免责声明且不出现投资建议表述
+- 前端预览 HTML 报告时使用 `<iframe sandbox>`（不开启 `allow-scripts`）+ 服务端响应头严格 CSP（`default-src 'none'`），双重隔离，报告里的脚本不会执行、外链资源不会加载
+- 基金详情页「AI 提示词」按钮复用同一套提示词生成器（`GET /api/v1/ai-prompt?code=005827&format=html|markdown`）
 
 基金详情页「研究报告」区与之联动：
 
@@ -104,19 +116,33 @@ data/                  SQLite 库与上传的报告（已 gitignore）
 | POST | `/reports` | 新增报告（`fund_code` 可为空 = 暂不关联） |
 | PATCH | `/reports/{id}` | 改标题/日期/标签，或关联（改挂）到某只基金 |
 | GET/DELETE | `/reports/{id}` | 报告详情（含 AI 解析）/ 删除 |
-| GET | `/ai-prompt?code=` | 面向 AI 的调用提示词（页面可一键复制） |
+| GET | `/reports/{id}/raw` | 报告原文（HTML 报告以 `text/html` 返回，带严格 CSP） |
+| GET | `/reports/{id}/download` | 下载上传的原始文件 |
+| GET | `/ai-prompt?code=&format=html\|markdown` | 面向 AI 的调用提示词（默认 html，页面可一键复制） |
 | GET | `/achievements` `/tasks` `/diary` `/breeds` | 成就 / 任务 / 日记 / 图鉴 |
 | GET | `/me/checkin` `/me/settings` `/me/keys` `/me/export` | 签到 / 设置 / API Key / 导出 |
 
 机器可发现：`/.well-known/ai-plugin.json`、`/llms.txt`、`/api/v1/capabilities`。
 
-AI 上传报告示例：
+AI 上传报告示例（Markdown / 纯文本）：
 
 ```bash
 curl -X POST http://127.0.0.1:3290/api/v1/funds/005827/reports \
   -H "Authorization: Bearer fa_xxx" -H "Content-Type: application/json" \
-  -d '{"title":"2026Q2季报解读","tags":["AI生成"],"content":"...","parse":true}'
+  -d '{"title":"2026Q2季报解读","tags":["AI生成"],"content_type":"markdown","content":"...","parse":true}'
 ```
+
+AI 上传 **HTML 报告**（重点支持的格式）：
+
+```bash
+curl -X POST http://127.0.0.1:3290/api/v1/funds/005827/reports \
+  -H "Authorization: Bearer fa_xxx" -H "Content-Type: application/json" \
+  -d '{"title":"005827 深度分析","tags":["AI生成","HTML"],"content_type":"html",
+       "content":"<!doctype html><html><head><meta charset=\"utf-8\"><style>...</style></head><body>...</body></html>",
+       "parse":true}'
+```
+
+`content_type` 可选 `html` / `markdown` / `text`；省略时自动识别（`.html` 后缀、或正文以 `<!doctype html>` / `<html` 开头即判定为 `html`）。
 
 ## 默认管理员账号
 

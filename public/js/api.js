@@ -62,7 +62,8 @@ export const Api = {
   achievements: () => request('/achievements'),
   breeds: () => request('/breeds'),
   tips: () => request('/tips'),
-  aiPrompt: (code) => request('/ai-prompt?code=' + code),
+  aiPrompt: (code, format) =>
+    request('/ai-prompt?code=' + encodeURIComponent(code || '') + (format ? '&format=' + format : '')),
 
   reports: (code) => request('/funds/' + code + '/reports'),
   reportsAll: (qs = '') => request('/reports' + (qs ? '?' + qs : '')),

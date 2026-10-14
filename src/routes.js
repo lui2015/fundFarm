@@ -20,7 +20,7 @@ const router = express.Router();
 /* ============================ 工具 ============================ */
 
 const CODE_RE = /^\d{6}$/;
-const ALLOWED_EXT = ['.pdf', '.md', '.markdown', '.txt', '.csv', '.png', '.jpg', '.jpeg', '.webp'];
+const ALLOWED_EXT = ['.pdf', '.md', '.markdown', '.txt', '.csv', '.html', '.htm', '.png', '.jpg', '.jpeg', '.webp'];
 
 function sanitizeFileName(name) {
   return String(name || 'report')
@@ -631,6 +631,7 @@ function publicReport(r, includeContent = false) {
     adopted,
     title: r.title,
     source: r.source,
+    contentType: r.content_type || 'text',
     reportDate: r.report_date,
     tags: r.tags ? r.tags.split(',').filter(Boolean) : [],
     fileName: r.file_name,
@@ -655,13 +656,29 @@ function publicReport(r, includeContent = false) {
 
 function readTextFile(filePath, ext) {
   try {
-    if (['.md', '.markdown', '.txt', '.csv'].includes(ext)) {
+    if (['.md', '.markdown', '.txt', '.csv', '.html', '.htm'].includes(ext)) {
       return fs.readFileSync(filePath, 'utf8');
     }
   } catch (e) {
     /* ignore */
   }
   return '';
+}
+
+/**
+ * 判定报告内容类型：text / markdown / html / file
+ * 优先级：显式 content_type > 文件扩展名 > 内容嗅探
+ */
+function detectContentType(body, fileName, content, hasFile) {
+  const explicit = String(body.content_type || '').trim().toLowerCase();
+  if (['html', 'markdown', 'text', 'file'].includes(explicit)) return explicit;
+  const ext = fileName ? path.extname(fileName).toLowerCase() : '';
+  if (['.html', '.htm'].includes(ext)) return 'html';
+  if (['.md', '.markdown'].includes(ext)) return 'markdown';
+  if (['.txt', '.csv'].includes(ext)) return 'text';
+  if (hasFile) return 'file';
+  if (/^\s*(<!doctype\s+html|<html[\s>])/i.test(String(content || ''))) return 'html';
+  return 'markdown';
 }
 
 router.get('/funds/:code/reports', auth.requireAuth, (req, res) => {
@@ -710,17 +727,18 @@ function createReportHandler(resolveFundCode) {
 
       const reportId = req.reportId;
       const wantParse = String(body.parse || '') === 'true' || body.parse === true;
+      const contentType = detectContentType(body, fileName, text, !!req.file);
       db.prepare(
         `INSERT INTO reports (id, user_id, adoption_id, fund_code, title, source, report_date, tags,
-           file_name, file_path, mime, size, content, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           file_name, file_path, mime, size, content, content_type, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         reportId,
         req.user.id,
         (getAdoption(req.user.id, fundCode) || {}).id || null,
         fundCode,
         title,
-        body.source || (req.file ? 'user' : 'text'),
+        body.source || (req.file ? 'user' : contentType === 'html' ? 'ai-html' : 'text'),
         body.report_date ? String(body.report_date).slice(0, 10) : today(),
         tags,
         fileName,
@@ -728,6 +746,7 @@ function createReportHandler(resolveFundCode) {
         mime,
         size,
         text ? text.slice(0, 200000) : null,
+        contentType,
         wantParse ? 'parsing' : 'done',
         nowISO()
       );
@@ -863,6 +882,26 @@ router.get('/reports/:id', auth.requireAuth, (req, res) => {
   res.json({ report: publicReport(r, true) });
 });
 
+/**
+ * 报告原文：HTML 报告可直接在 sandbox iframe 中预览。
+ * 安全：响应头带严格 CSP（default-src 'none'，仅允许内联样式与 data: 图片），
+ * 前端 iframe 使用 sandbox（不开启 allow-scripts），脚本无法执行。
+ */
+router.get('/reports/:id/raw', auth.requireAuth, (req, res) => {
+  const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  if (!r || r.user_id !== req.user.id) return res.status(404).json({ error: 'not_found' });
+  if (!r.content) return res.status(404).json({ error: 'no_content' });
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"
+  );
+  const type = r.content_type || 'text';
+  if (type === 'html') return res.type('text/html; charset=utf-8').send(r.content);
+  return res.type('text/plain; charset=utf-8').send(r.content);
+});
+
 router.get('/reports/:id/download', auth.requireAuth, (req, res) => {
   const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!r || r.user_id !== req.user.id || !r.file_path) return res.status(404).json({ error: 'not_found' });
@@ -902,11 +941,42 @@ function siteBase(req) {
   return `${proto}://${host}${config.basePath}`;
 }
 
-router.get('/ai-prompt', auth.requireAuth, async (req, res) => {
-  const code = String(req.query.code || '').trim();
-  const fund = code ? await quote.getFundInfo(code) : null;
-  const base = siteBase(req);
-  const prompt = `你现在是「养基场」的基金研究助手。目标基金：${fund?.name || '（基金名称）'}（代码 ${code || '（基金代码）'}）。
+/** 构造给 AI 的调用提示词：html（默认，重点支持）/ markdown */
+function buildAiPrompt(base, code, fundName, format) {
+  const name = fundName || '（基金名称）';
+  const target = code || '{基金代码}';
+  const head = `你现在是「养基场」的基金研究助手。目标基金：${name}（代码 ${target}）。`;
+
+  const apiSection = `
+完成后，调用养基场开放接口把报告写回用户的项目（需要用户已授权的 API Key）：
+
+POST ${base}/api/v1/funds/${target}/reports
+Headers:
+  Authorization: Bearer {API_KEY}
+  Content-Type: application/json
+Body:
+{
+  "title": "<报告标题>",
+  "report_date": "<YYYY-MM-DD>",
+  "tags": ["AI生成"${format === 'html' ? ', "HTML"' : ''}],
+  "content_type": "${format === 'html' ? 'html' : 'markdown'}",
+  "content": "<报告正文>",
+  "parse": true
+}
+
+其他可用接口：
+- GET  ${base}/api/v1/search?q=<关键词>        查询基金代码
+- GET  ${base}/api/v1/funds                    查看用户自选基金列表
+- POST ${base}/api/v1/reports                  上传报告（fund_code 可选，为空表示暂不关联）
+- GET  ${base}/api/v1/reports                  报告库列表
+- GET  ${base}/api/v1/reports/{id}/raw         读取报告原文（HTML 报告以 text/html 返回）
+- 也支持 multipart/form-data 直接上传文件：字段 file = 报告.html，fund_code = ${target}
+
+API Key 由用户在「养基场 → 我的 → 开发者 API Key」生成（fa_ 前缀），请让用户提供。
+若调用失败：401 = Key 无效，403 = 无权限，413 = 文件超过 20MB。`;
+
+  if (format === 'markdown') {
+    return `${head}
 
 任务：
 1. 检索并阅读该基金最近一期季报/年报、近期净值表现、基金经理观点、行业动态。
@@ -916,22 +986,48 @@ router.get('/ai-prompt', auth.requireAuth, async (req, res) => {
    - 三、关键风险（列 3 条）
    - 四、后续观察指标（列 3 条）
 3. 全文不得出现「建议买入/建议卖出/必涨」等投资建议表述，仅陈述事实与数据。
+${apiSection}
 
-完成后，调用养基场接口把报告写回（需要用户已授权 API Key）：
+最后向我回复：报告已写入，并附 3 条要点摘要与查看地址 ${base}/#/reports`;
+  }
 
-POST ${base}/api/v1/funds/${code || '{基金代码}'}/reports
-Headers: Authorization: Bearer {API_KEY}; Content-Type: application/json
-Body: {
-  "title": "<报告标题>",
-  "report_date": "<YYYY-MM-DD>",
-  "tags": ["AI生成"],
-  "content_type": "markdown",
-  "content": "<Markdown 正文>",
-  "parse": true
+  return `${head}
+
+任务：
+1. 检索并阅读该基金最近一期季报/年报、近期净值表现、基金经理观点、行业动态。
+2. 生成一份**自包含的 HTML 报告**（本平台重点支持 HTML 格式）：
+   - 单个 HTML 文档，样式写在 <style> 内联标签中；**不得引用外部 CDN / 外链图片 / 外部字体**；**不得包含 <script> 标签**（脚本会被沙箱拦截且不允许）
+   - 移动端友好：内容区 max-width 720px 居中、字号 14-16px、行高 1.6、表格可横向滚动
+   - 建议结构：标题区（基金名称 + 代码 + 报告日期）→ 一、业绩回顾 → 二、持仓与风格变化 → 三、关键风险（3 条）→ 四、后续观察指标（3 条）
+   - 用表格 / 卡片 / 色块呈现数据，主色建议 #4CAF50，风险项可用 #E6503A，涨用 #E6503A、跌用 #2BA471
+   - 结尾附一行小字：本报告由 AI 生成，仅供参考，不构成投资建议
+   - 全文不得出现「建议买入 / 建议卖出 / 必涨 / 推荐」等投资建议表述，仅陈述事实与数据
+3. 把生成的 HTML 原文（完整字符串）作为 content 字段提交，不要做 HTML 实体转义。
+${apiSection}
+
+最后向我回复：报告已写入，并附 3 条要点摘要与查看地址 ${base}/#/reports`;
 }
 
-最后向我回复：报告已写入，并附 3 条要点摘要。`;
-  res.json({ prompt, base, endpoints: ['POST /api/v1/funds/{code}/reports', 'GET /api/v1/funds/{code}/reports'] });
+router.get('/ai-prompt', auth.requireAuth, async (req, res) => {
+  const code = String(req.query.code || '').trim();
+  const format = String(req.query.format || 'html').toLowerCase() === 'markdown' ? 'markdown' : 'html';
+  const fund = code ? await quote.getFundInfo(code) : null;
+  const base = siteBase(req);
+  const prompt = buildAiPrompt(base, code, fund?.name, format);
+  res.json({
+    prompt,
+    format,
+    base,
+    fundCode: code,
+    fundName: fund?.name || null,
+    endpoints: [
+      'POST /api/v1/funds/{code}/reports',
+      'POST /api/v1/reports',
+      'GET /api/v1/reports',
+      'GET /api/v1/reports/{id}/raw',
+      'GET /api/v1/search?q=',
+    ],
+  });
 });
 
 /* ============================ 成就 / 我的 ============================ */
@@ -1036,6 +1132,8 @@ router.get('/capabilities', (req, res) => {
       { method: 'POST', path: '/funds/{code}/reports', desc: '上传报告（multipart file 或 JSON content）' },
       { method: 'GET', path: '/funds/{code}/reports', desc: '报告列表' },
       { method: 'GET', path: '/reports/{id}', desc: '报告详情与解析结果' },
+      { method: 'GET', path: '/reports/{id}/raw', desc: '报告原文（HTML 报告以 text/html 返回，带 CSP）' },
+      { method: 'PATCH', path: '/reports/{id}', desc: '修改报告或关联到某只基金' },
       { method: 'DELETE', path: '/reports/{id}', desc: '删除报告' },
       { method: 'GET', path: '/achievements', desc: '成就与解锁状态' },
     ],

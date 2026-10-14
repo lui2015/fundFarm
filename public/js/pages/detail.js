@@ -317,26 +317,69 @@ export async function mount(r) {
 
   const prBtn = r.querySelector('[data-act="prompt"]');
   if (prBtn)
-    prBtn.onclick = async () => {
-      try {
-        const r2 = await Api.aiPrompt(code);
-        modal(
-          '给 AI 的调用提示词',
-          () => `<pre style="white-space:pre-wrap;font-size:12px;background:#fffdf8;border:1px solid var(--line);border-radius:12px;padding:12px;max-height:50vh;overflow:auto">${esc(
-            r2.prompt
-          )}</pre>
-          <div class="modal-actions"><button class="btn ghost" data-copy>复制</button><button class="btn" data-close>好的</button></div>`,
-          (body, close) => {
-            body.querySelector('[data-close]').onclick = close;
-            body.querySelector('[data-copy]').onclick = async () => {
-              await copyText(r2.prompt);
-              toast('已复制，发给你的 AI 助手即可');
+    prBtn.onclick = () => {
+      let fmt = 'html';
+      const cache = {};
+      const load = async () => {
+        if (cache[fmt]) return cache[fmt];
+        cache[fmt] = await Api.aiPrompt(code, fmt);
+        return cache[fmt];
+      };
+      modal(
+        '给 AI 的调用提示词',
+        () => `
+          <div class="muted" style="font-size:13px">
+            复制给任意 AI 助手（ChatGPT / 元宝 / Claude…），它会检索资料、生成
+            <b>HTML 报告</b>并调用养基场开放接口写入本基金。
+          </div>
+          <div class="seg" id="pm-fmt" style="margin:10px 0">
+            <button data-pfmt="html" class="active">HTML 格式（推荐）</button>
+            <button data-pfmt="markdown">Markdown 格式</button>
+          </div>
+          <pre class="prompt-box" id="pm-text">正在生成提示词…</pre>
+          <details style="margin-top:10px">
+            <summary style="cursor:pointer;font-size:13px">查看开放接口清单</summary>
+            <pre class="prompt-box" id="pm-endpoints" style="margin-top:8px"></pre>
+          </details>
+          <div class="ai-note">提示词中的 <b>{API_KEY}</b> 请替换为「我的 → 开发者 API Key」生成的密钥（fa_ 前缀）。</div>
+          <div class="modal-actions">
+            <button class="btn" data-copy>复制提示词</button>
+            <button class="btn ghost" data-close>关闭</button>
+          </div>`,
+        (body, close) => {
+          const fill = async () => {
+            const box = body.querySelector('#pm-text');
+            box.textContent = '正在生成提示词…';
+            try {
+              const r2 = await load();
+              box.textContent = r2.prompt;
+              body.querySelector('#pm-endpoints').textContent =
+                `${r2.base || ''}/api/v1\n\n` + (r2.endpoints || []).map((e) => '· ' + e).join('\n');
+            } catch (e) {
+              box.textContent = '生成失败：' + e.message;
+            }
+          };
+          body.querySelectorAll('#pm-fmt [data-pfmt]').forEach((b) => {
+            b.onclick = () => {
+              fmt = b.getAttribute('data-pfmt');
+              body
+                .querySelectorAll('#pm-fmt [data-pfmt]')
+                .forEach((x) => x.classList.toggle('active', x === b));
+              fill();
             };
-          }
-        );
-      } catch (e) {
-        toast('获取失败：' + e.message);
-      }
+          });
+          body.querySelector('[data-close]').onclick = close;
+          body.querySelector('[data-copy]').onclick = async () => {
+            try {
+              await copyText(body.querySelector('#pm-text').textContent);
+              toast('已复制，发给你的 AI 助手即可');
+            } catch (e) {
+              toast('复制失败，请手动选择文本');
+            }
+          };
+          fill();
+        }
+      );
     };
 
   r.querySelectorAll('[data-viewr]').forEach((b) => {
