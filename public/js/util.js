@@ -143,19 +143,4 @@ export function copyText(text) {
   return Promise.resolve();
 }
 
-export function sparkline(points, { width = 320, height = 90, color = '#4CAF50' } = {}) {
-  if (!points || points.length < 2) return '';
-  const vals = points.map((p) => Number(p.v)).filter((v) => !Number.isNaN(v));
-  if (vals.length < 2) return '';
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const span = max - min || 1;
-  const stepX = width / (points.length - 1);
-  const y = (v) => height - 8 - ((v - min) / span) * (height - 16);
-  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * stepX).toFixed(1)},${y(Number(p.v)).toFixed(1)}`).join(' ');
-  const area = `${d} L${width},${height} L0,${height} Z`;
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" preserveAspectRatio="none">
-    <path d="${area}" fill="${color}22" />
-    <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  </svg>`;
-}
+// 旧的 sparkline 已由 js/chart.js 的 navChart 取代（原实现用 CSS 变量拼色值会退化成黑色填充）

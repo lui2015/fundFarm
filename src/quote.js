@@ -135,7 +135,9 @@ async function getHistory(code, pageSize = 30) {
         accNav: Number(r.LJJZ) || null,
         pct: Number(r.JZZZL) || 0,
       }))
-      .filter((r) => r.date);
+      .filter((r) => r.date)
+      // 天天基金返回的是倒序（最新在前），统一成按日期升序，方便直接画走势 / 取最近 N 天
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
     const result = { code, items, updatedAt: new Date().toISOString() };
     saveHistory(code, items);
     return historyCache.set(key, result);

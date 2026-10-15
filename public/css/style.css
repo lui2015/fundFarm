@@ -120,6 +120,7 @@ a {
 .card-title {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-weight: 700;
   font-size: 15px;
@@ -703,6 +704,130 @@ textarea.input {
   background: var(--green-soft);
 }
 
+/* ---- 净值走势图 ---- */
+.chart-wrap {
+  position: relative;
+  padding: 4px 48px 4px 0;
+}
+.chart-plot {
+  position: relative;
+  height: 168px;
+}
+@media (min-width: 700px) {
+  .chart-plot {
+    height: 224px;
+  }
+}
+.nav-chart {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.c-grid {
+  stroke: #efe7d8;
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+}
+.c-line {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.c-guide {
+  stroke: #c9c0ad;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+.chart-ylabel {
+  position: absolute;
+  right: -48px;
+  width: 44px;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1;
+  color: #a89f8d;
+  transform: translateY(-50%);
+}
+.chart-xlabel {
+  position: absolute;
+  bottom: -20px;
+  font-size: 11px;
+  line-height: 1;
+  color: #a89f8d;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.chart-xlabel.first {
+  transform: none;
+}
+.chart-xlabel.last {
+  transform: translateX(-100%);
+}
+.chart-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.chart-dot.mark {
+  width: 6px;
+  height: 6px;
+  background: #c9c0ad;
+}
+.chart-dot.last {
+  width: 9px;
+  height: 9px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9);
+}
+.chart-dot.cursor {
+  display: none;
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9);
+  z-index: 2;
+}
+.chart-tip {
+  position: absolute;
+  display: none;
+  background: rgba(59, 50, 38, 0.93);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 9px;
+  border-radius: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  align-items: baseline;
+  font-size: 12px;
+  margin-top: 22px;
+}
+.c-change {
+  font-size: 15px;
+  font-weight: 800;
+}
+.c-change.up {
+  color: var(--up);
+}
+.c-change.down {
+  color: var(--down);
+}
+.chart-seg {
+  min-width: 228px;
+  flex: 0 0 auto;
+}
+
 .ri-excerpt {
   margin-top: 6px;
   font-size: 13px;
@@ -893,6 +1018,7 @@ textarea.input {
   border-radius: 10px;
   padding: 6px 8px;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
   min-height: 34px;
 }

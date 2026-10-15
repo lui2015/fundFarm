@@ -1,15 +1,17 @@
 import { Api } from '../api.js';
 import { chickenSVG } from '../chicken.js';
-import { esc, pct, pctClass, fmtAmount, money, fmtDate, toast, modal, confirmBox, copyText, sparkline } from '../util.js';
+import { esc, pct, pctClass, fmtAmount, money, fmtDate, toast, modal, confirmBox, copyText } from '../util.js';
 import { getState } from '../app.js';
 import { showAchievements } from './yard.js';
 import { uploadModal, linkReportModal, viewModal, reportExcerpt } from './reports.js';
 import { feedModal, patModal, noteModal } from './care.js';
+import { navChart } from '../chart.js';
 
 let data = null;
 let range = 60;
 let root = null;
 let code = '';
+let chartHandle = null;
 
 async function rerender() {
   if (!root) return;
@@ -26,8 +28,6 @@ export async function render(param) {
   const q = data.quote || {};
   const m = data.metrics || {};
   const c = data.chicken;
-  const hist = (data.history || []).slice(-range).map((h) => ({ v: h.nav }));
-  const chartColor = (data.history && data.history.at(-1)?.pct >= 0) ? 'var(--up)' : 'var(--down)';
 
   const header = `
     <div class="card">
@@ -73,17 +73,21 @@ export async function render(param) {
       }
     </div>`;
 
+  const chartData = (data.history || []).slice(-range).map((h) => ({ v: h.nav, date: h.date }));
+  chartHandle = navChart(chartData, {
+    label: `${(data.adoption && data.adoption.nickname) || f.name || code} 净值走势`,
+  });
   const chart = `
     <div class="card">
       <div class="card-title">净值走势
         <span class="spacer"></span>
-        <div class="seg" style="width:210px">
+        <div class="seg chart-seg">
           ${[30, 60, 180, 9999]
             .map((r) => `<button data-range="${r}" class="${range === r ? 'active' : ''}">${r === 9999 ? '全部' : r + '天'}</button>`)
             .join('')}
         </div>
       </div>
-      ${hist.length > 1 ? sparkline(hist, { color: chartColor }) : '<div class="empty" style="padding:12px">暂无净值数据</div>'}
+      ${chartData.length > 1 ? chartHandle.html : '<div class="empty" style="padding:12px">暂无净值数据</div>'}
       ${
         data.historyStale
           ? '<div class="muted" style="font-size:12px;text-align:center">历史数据为本地缓存，第三方接口暂不可用</div>'
@@ -221,6 +225,8 @@ function reportItemHtml(r) {
 
 export async function mount(r) {
   root = r;
+
+  if (chartHandle && chartHandle.bind) chartHandle.bind(r);
 
   r.querySelectorAll('[data-range]').forEach((b) => {
     b.onclick = async () => {
