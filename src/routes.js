@@ -1084,10 +1084,23 @@ router.get('/reports/:id', auth.requireAuth, (req, res) => {
   res.json({ report: publicReport(r, true) });
 });
 
+/** 直接整屏打开 HTML 报告时，缺 viewport 会导致手机上缩得很小，这里补一个 */
+function withViewportMeta(html) {
+  if (/<meta\s+name=["']viewport["']/i.test(String(html || ''))) return html;
+  const headIdx = String(html).search(/<head[^>]*>/i);
+  if (headIdx === -1) return html;
+  const end = String(html).indexOf('>', headIdx) + 1;
+  return (
+    String(html).slice(0, end) +
+    '\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
+    String(html).slice(end)
+  );
+}
+
 /**
- * 报告原文：HTML 报告可直接在 sandbox iframe 中预览。
+ * 报告原文：HTML 报告直接整屏打开（浏览器新标签），也可在 sandbox iframe 中预览。
  * 安全：响应头带严格 CSP（default-src 'none'，仅允许内联样式与 data: 图片），
- * 前端 iframe 使用 sandbox（不开启 allow-scripts），脚本无法执行。
+ * 脚本不会执行、外链资源不会加载。
  */
 router.get('/reports/:id/raw', auth.requireAuth, (req, res) => {
   const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
@@ -1100,7 +1113,7 @@ router.get('/reports/:id/raw', auth.requireAuth, (req, res) => {
     "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"
   );
   const type = r.content_type || 'text';
-  if (type === 'html') return res.type('text/html; charset=utf-8').send(r.content);
+  if (type === 'html') return res.type('text/html; charset=utf-8').send(withViewportMeta(r.content));
   return res.type('text/plain; charset=utf-8').send(r.content);
 });
 

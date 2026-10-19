@@ -74,7 +74,7 @@ export async function render(param) {
   const body = isHtml
     ? `<div class="card">
         <div class="card-title">报告正文<span class="spacer"></span>
-          <a class="btn ghost small" href="api/v1/reports/${encodeURIComponent(id)}/raw" target="_blank" rel="noopener">新窗口打开</a>
+          <a class="btn ghost small" href="api/v1/reports/${encodeURIComponent(id)}/raw" target="_blank" rel="noopener">全屏打开</a>
         </div>
         <iframe class="html-preview full" sandbox title="${esc(r.title || 'HTML 报告')}"
                 src="api/v1/reports/${encodeURIComponent(id)}/raw"></iframe>
@@ -104,6 +104,11 @@ export async function render(param) {
       <div class="report-head">
         <button class="btn ghost small" data-back>← ${esc(back.label)}</button>
         <span class="spacer"></span>
+        ${
+          isHtml
+            ? `<a class="btn small" href="api/v1/reports/${encodeURIComponent(id)}/raw" target="_blank" rel="noopener">全屏打开</a>`
+            : ''
+        }
         <button class="btn ghost small" data-link>${r.fundCode ? '更换关联' : '关联基金'}</button>
         ${r.content ? '<button class="btn ghost small" data-reparse>重新解析</button>' : ''}
         <button class="btn ghost small" data-del>删除</button>

@@ -193,6 +193,12 @@ a {
 .btn:active {
   transform: scale(0.97);
 }
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
 .btn.ghost {
   background: #fff;
   color: var(--ink);

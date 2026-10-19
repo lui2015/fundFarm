@@ -216,7 +216,13 @@ function reportItemHtml(r) {
         ${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
-        <button class="btn ghost small" data-viewr="${esc(r.id)}">查看</button>
+        ${
+          r.contentType === 'html'
+            ? `<a class="btn small" href="api/v1/reports/${encodeURIComponent(
+                r.id
+              )}/raw" target="_blank" rel="noopener">全屏打开</a>`
+            : `<button class="btn ghost small" data-viewr="${esc(r.id)}">查看</button>`
+        }
         <button class="btn ghost small" data-del="${esc(r.id)}">删除</button>
       </div>
     </div>

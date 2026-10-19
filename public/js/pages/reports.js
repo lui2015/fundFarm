@@ -135,7 +135,13 @@ function reportCard(r) {
         : ''
     }
     <div class="rep-actions">
-      <button class="btn ghost small" data-view="${esc(r.id)}">查看</button>
+      ${
+        r.contentType === 'html'
+          ? `<a class="btn small" href="api/v1/reports/${encodeURIComponent(
+              r.id
+            )}/raw" target="_blank" rel="noopener">全屏打开</a>`
+          : `<button class="btn ghost small" data-view="${esc(r.id)}">查看</button>`
+      }
       <button class="btn ghost small" data-link="${esc(r.id)}">${r.fundCode ? '更换关联' : '关联基金'}</button>
       <button class="btn ghost small" data-del="${esc(r.id)}">删除</button>
     </div>
