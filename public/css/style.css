@@ -670,6 +670,47 @@ textarea.input {
   border-radius: 12px;
   background: #fff;
 }
+.html-preview.full {
+  height: 72vh;
+  min-height: 460px;
+}
+
+/* ---- 报告详情页 ---- */
+.report-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.report-head .spacer {
+  flex: 1;
+}
+.report-detail-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.rep-summary {
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+.rep-block {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.rep-block ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  line-height: 1.7;
+}
+.prompt-box.report-doc {
+  max-height: none;
+  font-size: 13px;
+  line-height: 1.75;
+}
 
 /* ---- 投研素材：加餐 / 安抚 / 心得 ---- */
 .chip-row {

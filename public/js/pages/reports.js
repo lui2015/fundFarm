@@ -65,7 +65,8 @@ export function reportExcerpt(r, max = 140) {
 /* ---------------- 渲染 ---------------- */
 
 export async function render() {
-  if (!data) data = await Api.reportsAll(buildQs());
+  // 每次都拉最新：从报告详情页返回时能看到删除 / 关联 / 解析后的结果
+  data = await Api.reportsAll(buildQs());
   await loadAdoptions();
   const st = data.stats || {};
   const items = data.items || [];
@@ -181,7 +182,9 @@ export async function mount(r) {
   });
 
   r.querySelectorAll('[data-view]').forEach((b) => {
-    b.onclick = () => viewModal(b.getAttribute('data-view'), rerender);
+    b.onclick = () => {
+      location.hash = '#/report/' + encodeURIComponent(b.getAttribute('data-view')) + '?from=reports';
+    };
   });
   r.querySelectorAll('[data-link]').forEach((b) => {
     b.onclick = () => chooseFundModal(b.getAttribute('data-link'), rerender);
@@ -404,112 +407,6 @@ export function uploadModal(defaultFundCode, onDone) {
           );
         }
       };
-    }
-  );
-}
-
-/* ---------------- 弹窗：查看 ---------------- */
-
-export async function viewModal(id, onDone) {
-  let r;
-  try {
-    const out = await Api.report(id);
-    r = out.report;
-  } catch (e) {
-    return toast('加载失败：' + e.message);
-  }
-  const p = r.parse;
-  const isHtml = (r.contentType || '') === 'html';
-  const typeLabel =
-    { html: 'HTML', markdown: 'Markdown', text: '文本', file: '文件' }[r.contentType || 'text'] || '文本';
-
-  const summary = cleanReportText(r, p && p.summary);
-  const points = ((p && p.keyPoints) || []).map((k) => cleanReportText(r, k)).filter(Boolean);
-  const risks = ((p && p.risks) || []).map((k) => cleanReportText(r, k)).filter(Boolean);
-
-  const parsedBlock =
-    p && (summary || points.length || risks.length)
-      ? `${summary ? `<div style="font-size:14px">${esc(summary)}</div>` : ''}
-       ${
-         points.length
-           ? `<div style="margin-top:8px"><b>要点</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${points
-               .map((k) => `<li>${esc(k)}</li>`)
-               .join('')}</ul></div>`
-           : ''
-       }
-       ${
-         risks.length
-           ? `<div style="margin-top:8px"><b>风险</b><ul style="margin:4px 0 0;padding-left:18px;font-size:13px">${risks
-               .map((k) => `<li>${esc(k)}</li>`)
-               .join('')}</ul></div>`
-           : ''
-       }
-       <div class="muted" style="font-size:11px;margin-top:6px">模型 ${esc(p.model || '')} · 置信度 ${
-          p.confidence === null || p.confidence === undefined ? '--' : Math.round(p.confidence * 100) + '%'
-        }</div>`
-      : '';
-
-  const sourceBlock = isHtml
-    ? `<div style="margin-top:12px">
-         <div style="font-weight:700;font-size:14px;margin-bottom:6px">报告预览</div>
-         <iframe class="html-preview" sandbox title="HTML 报告预览" src="api/v1/reports/${encodeURIComponent(
-           r.id
-         )}/raw"></iframe>
-         <div class="muted" style="font-size:11px;margin-top:4px">HTML 报告以沙箱方式渲染：不执行脚本、不加载外部资源</div>
-         <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">查看 HTML 源码</summary>
-           <pre class="prompt-box" style="margin-top:8px">${esc(r.content || '')}</pre></details>
-       </div>`
-    : r.content
-    ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px">查看报告原文</summary>
-         <pre class="prompt-box" style="margin-top:8px">${esc(r.content)}</pre></details>`
-    : '';
-
-  modal(
-    r.title,
-    () => `
-      <div class="muted" style="font-size:12px">
-        ${
-          r.fundCode
-            ? `<a href="#/fund/${esc(r.fundCode)}" data-jump2="${esc(r.fundCode)}">${esc(
-                r.fundName || r.fundCode
-              )}</a> · ${esc(r.fundCode)} · `
-            : '未关联基金 · '
-        }${esc(fmtDate(r.reportDate))} · ${esc(typeLabel)} · ${esc(r.source || '')}${
-      r.fileName ? ' · ' + esc(r.fileName) : ''
-    }
-      </div>
-      ${parsedBlock ? `<div style="margin-top:10px">${parsedBlock}</div>` : ''}
-      ${sourceBlock}
-      <div class="modal-actions">
-        ${r.fileName ? '<button class="btn ghost" data-download>下载原文件</button>' : ''}
-        ${r.content ? '<button class="btn ghost" data-reparse>重新解析</button>' : ''}
-        <button class="btn" data-close>关闭</button>
-      </div>
-      <div class="ai-note">AI 解析仅供参考，不构成投资建议。</div>`,
-    (body, close) => {
-      body.querySelector('[data-close]').onclick = close;
-      const jump = body.querySelector('[data-jump2]');
-      if (jump)
-        jump.onclick = (e) => {
-          e.preventDefault();
-          close();
-          location.hash = '#/fund/' + jump.getAttribute('data-jump2');
-        };
-      const rp = body.querySelector('[data-reparse]');
-      if (rp)
-        rp.onclick = async () => {
-          try {
-            await Api.reparse(id);
-            close();
-            toast('已重新提交解析');
-            if (onDone) onDone();
-          } catch (e) {
-            toast('失败：' + e.message);
-          }
-        };
-      const dl = body.querySelector('[data-download]');
-      if (dl)
-        dl.onclick = () => window.open('api/v1/reports/' + encodeURIComponent(r.id) + '/download', '_blank');
     }
   );
 }

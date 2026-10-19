@@ -3,7 +3,7 @@ import { chickenSVG } from '../chicken.js';
 import { esc, pct, pctClass, fmtAmount, money, fmtDate, toast, modal, confirmBox, copyText } from '../util.js';
 import { getState } from '../app.js';
 import { showAchievements } from './yard.js';
-import { uploadModal, linkReportModal, viewModal, reportExcerpt } from './reports.js';
+import { uploadModal, linkReportModal, reportExcerpt } from './reports.js';
 import { feedModal, patModal, noteModal } from './care.js';
 import { navChart } from '../chart.js';
 
@@ -445,7 +445,8 @@ export async function mount(r) {
   r.querySelectorAll('[data-viewr]').forEach((b) => {
     b.onclick = (e) => {
       e.stopPropagation();
-      viewModal(b.getAttribute('data-viewr'), () => rerender());
+      location.hash =
+        '#/report/' + encodeURIComponent(b.getAttribute('data-viewr')) + '?from=fund/' + encodeURIComponent(code);
     };
   });
 

@@ -6,6 +6,7 @@ import * as Reports from './pages/reports.js';
 import * as Detail from './pages/detail.js';
 import * as Discover from './pages/discover.js';
 import * as Me from './pages/me.js';
+import * as ReportPage from './pages/report.js';
 
 const state = { user: null, settings: {}, route: { name: 'yard', param: '' } };
 
@@ -27,16 +28,19 @@ const NAV = [
 ];
 
 function parseHash() {
-  const h = (location.hash || '').replace(/^#/, '');
+  const h = (location.hash || '').replace(/^#/, '').split('?')[0]; // 去掉 ?from=... 之类的查询串
   const parts = h.split('/').filter(Boolean);
   if (!parts.length) return { name: 'yard', param: '' };
   if (parts[0] === 'fund') return { name: 'fund', param: parts[1] || '' };
+  if (parts[0] === 'report') return { name: 'report', param: parts[1] || '' };
   if (['yard', 'funds', 'reports', 'discover', 'me'].includes(parts[0])) return { name: parts[0], param: '' };
   return { name: 'yard', param: '' };
 }
 
 function navKey(name) {
-  return name === 'fund' ? 'funds' : name;
+  if (name === 'fund') return 'funds';
+  if (name === 'report') return 'reports';
+  return name;
 }
 
 function shellHtml(active) {
@@ -145,7 +149,15 @@ function bindAuth(root) {
   };
 }
 
-const PAGES = { yard: Yard, funds: Funds, reports: Reports, fund: Detail, discover: Discover, me: Me };
+const PAGES = {
+  yard: Yard,
+  funds: Funds,
+  reports: Reports,
+  fund: Detail,
+  report: ReportPage,
+  discover: Discover,
+  me: Me,
+};
 
 export function refresh() {
   route();
