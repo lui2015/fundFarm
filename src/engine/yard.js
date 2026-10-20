@@ -8,7 +8,8 @@ const tasks = require('./tasks');
 const { today, nowISO, round, daysBetween } = require('../util');
 
 const ADOPT_SQL = `
-  SELECT a.*, f.name AS fund_name, f.type AS fund_type, f.company, f.manager, f.established, f.scale,
+  SELECT a.*, f.name AS fund_name, f.type AS fund_type, f.category AS fund_category,
+         f.index_name AS fund_index_name, f.company, f.manager, f.established, f.scale,
          g.name AS group_name, c.id AS chicken_id
   FROM adoptions a
   LEFT JOIN funds f ON f.code = a.fund_code
@@ -17,6 +18,22 @@ const ADOPT_SQL = `
   WHERE a.user_id = ? AND a.released_at IS NULL
   ORDER BY a.sort ASC, a.adopted_at ASC
 `;
+
+/** 过滤历史脏值（早期版本把 '--' 当有效数据写进过库） */
+function pickText(v) {
+  const s = v === null || v === undefined ? '' : String(v).trim();
+  return !s || s === '--' || s === '—' || s === '-' ? null : s;
+}
+
+/**
+ * 是否已建仓：成本价与份额都填了才算「真的持有」，才能进鸡舍。
+ * 只领养没填持仓的，只算自选观察，不进鸡舍、不结算事件、不参与照料。
+ */
+function hasPosition(row) {
+  const cost = Number(row && row.cost_price);
+  const shares = Number(row && row.shares);
+  return Number.isFinite(cost) && Number.isFinite(shares) && cost > 0 && shares > 0;
+}
 
 function lastLocalPct(code) {
   const row = db.prepare('SELECT pct FROM nav_history WHERE code = ? ORDER BY date DESC LIMIT 1').get(code);
@@ -37,6 +54,22 @@ async function buildAdoptions(userId) {
 
   const quotes = await quote.getEstimates(codes);
 
+  // 老数据没有分类字段：补一次基础信息（infoCache 7 天，顺带回填 DB）
+  const catMap = {};
+  const needInfo = rows.filter((r) => !r.fund_category).map((r) => r.fund_code).slice(0, 20);
+  if (needInfo.length) {
+    await Promise.all(
+      needInfo.map((c) =>
+        quote
+          .getFundInfo(c)
+          .then((info) => {
+            if (info) catMap[c] = info;
+          })
+          .catch(() => null)
+      )
+    );
+  }
+
   const items = [];
   const profitRates = {};
   for (const r of rows) {
@@ -55,21 +88,26 @@ async function buildAdoptions(userId) {
       profitRates[r.chicken_id] = profitRate;
     }
 
+    const positioned = hasPosition(r);
     const adoption = { id: r.id, fund_code: r.fund_code, nickname: r.nickname };
-    if (typeof pct === 'number') {
+    // 没建仓的鸡不进鸡舍，也不产出生蛋 / 掉毛等事件，避免鸡舍出现「幽灵鸡」
+    if (positioned && typeof pct === 'number') {
       chickenEngine.applyDailyEvent(adoption, pct, profitRate);
     }
 
     const c = chickenEngine.getChicken(r.id);
     const holdDays = chickenEngine.holdingDays(r);
     const fundName = r.fund_name || q?.name || r.fund_code;
-    const ftype = r.fund_type || (q?.name ? null : null);
+    const ftype = r.fund_type || null;
+    const category = pickText(r.fund_category) || pickText(catMap[r.fund_code]?.category);
 
     items.push({
       adoptionId: r.id,
       fundCode: r.fund_code,
       name: fundName,
       type: ftype || null,
+      category,
+      indexName: pickText(r.fund_index_name) || pickText(catMap[r.fund_code]?.indexName),
       company: r.company || null,
       manager: r.manager || null,
       nickname: r.nickname || fundName,
@@ -77,6 +115,7 @@ async function buildAdoptions(userId) {
       groupName: r.group_name || '未分组',
       costPrice: r.cost_price,
       shares: r.shares,
+      hasPosition: positioned,
       firstBuyDate: r.first_buy_date,
       adoptedAt: r.adopted_at,
       holdingDays: holdDays,
@@ -88,14 +127,16 @@ async function buildAdoptions(userId) {
             pct: round(q.pct, 2),
             estimateTime: q.estimateTime,
             live: q.live !== false,
+            approx: !!q.approx,
+            source: q.source || null,
             updatedAt: q.updatedAt,
           }
-        : { nav: null, estimate: null, pct: lastLocalPct(r.fund_code), live: false, updatedAt: null },
+        : { nav: null, estimate: null, pct: lastLocalPct(r.fund_code), live: false, approx: false, source: null, updatedAt: null },
       marketValue: marketValue ? round(marketValue, 2) : null,
       profit: profit === null ? null : round(profit, 2),
       profitRate: profitRate === null ? null : round(profitRate, 2),
       todayPct: typeof pct === 'number' ? round(pct, 2) : null,
-      chicken: c ? chickenEngine.publicChicken(c) : null,
+      chicken: c ? chickenEngine.publicChicken(c, r.fund_code) : null,
     });
   }
   return { items, profitRates };
@@ -138,7 +179,12 @@ function summarize(items) {
 }
 
 async function buildYard(userId, options = {}) {
-  const { items, profitRates } = await buildAdoptions(userId);
+  const { items: allItems, profitRates } = await buildAdoptions(userId);
+  // 鸡舍只收「已建仓」的基金：没填成本价 / 份额的先留在自选里观察
+  const items = allItems.filter((it) => it.hasPosition);
+  const watchItems = allItems
+    .filter((it) => !it.hasPosition)
+    .map((it) => ({ fundCode: it.fundCode, nickname: it.nickname, name: it.name }));
   const indices = await quote.getIndices();
   const mainIdx = indices.items?.[0] || null;
   const weather = quote.weatherOf(mainIdx ? mainIdx.pct : 0);
@@ -173,7 +219,7 @@ async function buildYard(userId, options = {}) {
        FROM daily_events e
        JOIN adoptions a ON a.id = e.adoption_id
        LEFT JOIN funds f ON f.code = a.fund_code
-       WHERE a.user_id = ? AND e.date = ?
+       WHERE a.user_id = ? AND e.date = ? AND a.cost_price > 0 AND a.shares > 0
        ORDER BY e.created_at DESC`
     )
     .all(userId, date);
@@ -184,6 +230,8 @@ async function buildYard(userId, options = {}) {
     indices: indices.items || [],
     summary,
     items,
+    watching: watchItems.length,
+    watchItems,
     events: events.map((e) => ({
       id: e.id,
       type: e.event_type,
@@ -224,4 +272,4 @@ function buildReminders(items) {
   return out;
 }
 
-module.exports = { buildAdoptions, buildYard, summarize };
+module.exports = { buildAdoptions, buildYard, summarize, lastLocalPct, hasPosition };

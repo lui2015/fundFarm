@@ -370,6 +370,84 @@ textarea.input {
   font-weight: 800;
   line-height: 1.1;
 }
+/* 天气栏里的大盘点位：点击看全球指数 */
+.idx-btn {
+  appearance: none;
+  border: 0;
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.idx-btn:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
+.idx-btn .idx-more {
+  font-size: 11px;
+  opacity: 0.85;
+}
+/* 全球指数面板 */
+.gi-body {
+  max-height: 56vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.gi-group {
+  margin-top: 10px;
+}
+.gi-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.gi-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px dashed var(--line);
+}
+.gi-main {
+  min-width: 0;
+}
+.gi-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.gi-time {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.gi-right {
+  text-align: right;
+  white-space: nowrap;
+}
+.gi-val {
+  font-size: 15px;
+  font-weight: 700;
+}
+.gi-delta {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.gi-delta.up {
+  color: var(--up);
+}
+.gi-delta.down {
+  color: var(--down);
+}
+.gi-delta.flat {
+  color: var(--muted);
+}
 
 /* ---------- 鸡卡片 ---------- */
 .chicken-grid {
@@ -472,6 +550,55 @@ textarea.input {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
+}
+
+/* 基金健康指标：标签固定宽、数值列加宽 */
+.bar-row.metric {
+  margin-top: 7px;
+  font-size: 12.5px;
+}
+.bar-row.metric > span:first-child {
+  flex: 0 0 62px;
+  width: 62px;
+  color: var(--ink);
+}
+.bar-row.metric b {
+  width: 62px;
+}
+/* 有正负的指标：从 50% 中线向两边生长，中线有一条细刻度 */
+.bar.bi {
+  position: relative;
+}
+.bar.bi::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: #d9d2c0;
+}
+.bar.bi > span {
+  position: absolute;
+  top: 0;
+}
+.bar.bar-up > span {
+  background: var(--up);
+}
+.bar.bar-down > span {
+  background: var(--down);
+}
+.bar.bar-warn > span {
+  background: #e0a800;
+}
+.bar-row b.up {
+  color: var(--up);
+}
+.bar-row b.down {
+  color: var(--down);
+}
+.bar-row b.warn {
+  color: #b07a00;
 }
 
 /* ---------- 列表 ---------- */
@@ -919,6 +1046,167 @@ textarea.input {
   margin-right: 4px;
 }
 
+/* ---------- 领养弹窗：按类型筛选基金 ---------- */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.chip {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  cursor: pointer;
+}
+.chip.active {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green-dark);
+  font-weight: 700;
+}
+.explore-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.explore-bar select {
+  flex: 1;
+  min-height: 38px;
+}
+.fund-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  -webkit-overflow-scrolling: touch;
+}
+.fund-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.fund-row:last-child {
+  border-bottom: 0;
+}
+.fund-row:hover,
+.fund-row.active {
+  background: var(--green-soft);
+}
+.fund-row .fr-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picked-fund {
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--green-soft);
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  border-radius: 10px;
+  padding: 7px 10px;
+  margin: 10px 0;
+  word-break: break-all;
+}
+.picked-fund b {
+  color: var(--ink);
+}
+.fund-row .fr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ---------- 实时行情标记 ---------- */
+.live-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(43, 164, 113, 0.14);
+  color: var(--green-dark, #2ba471);
+  vertical-align: middle;
+}
+.live-tag::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #2ba471;
+  animation: live-blink 1.6s ease-in-out infinite;
+}
+.live-tag.idle {
+  background: #f0ede4;
+  color: var(--muted, #8a8578);
+}
+.live-tag.idle::before {
+  background: #b9b3a4;
+  animation: none;
+}
+.live-tag.off {
+  background: rgba(230, 80, 58, 0.12);
+  color: #e6503a;
+}
+.live-tag.off::before {
+  background: #e6503a;
+  animation: none;
+}
+@keyframes live-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.live-refresh {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted, #8a8578);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 8px;
+  vertical-align: middle;
+}
+.live-refresh:hover {
+  background: #f0ede4;
+}
+.live-refresh.loading {
+  animation: live-spin 0.9s linear infinite;
+  color: var(--green-dark, #2ba471);
+}
+@keyframes live-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---------- 弹窗 / toast ---------- */
 .modal-root:empty {
   display: none;
@@ -1260,4 +1548,40 @@ textarea.input {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- 鸡舍入场门槛（未设置持仓 = 只在自选观察） ---------- */
+.yard-gate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin: 10px 0 2px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: #fffdf7;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.yard-gate b {
+  color: var(--ink);
+}
+.tag-watch {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f3f0e6;
+  color: var(--muted);
+  vertical-align: 1px;
+}
+.chicken-card.watching {
+  opacity: 0.85;
+}
+.chicken-card.watching .yard-bg {
+  filter: grayscale(0.4);
 }

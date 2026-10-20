@@ -35,6 +35,145 @@ function breedInfo(key) {
   return BREEDS[key] || BREEDS.other;
 }
 
+/* ------------------------------------------------------------------
+ * 每只基金一只「长相不同」的鸡
+ * 品种（breed）只决定基础色系，同一个品种下再用基金代码派生出花色：
+ * 图案、配饰、鸡冠、尾巴、体型、色相偏移，全部由代码哈希稳定决定，
+ * 换设备 / 重装浏览器 / 重新登录都不会变样。
+ * ------------------------------------------------------------------ */
+
+function hash32(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function hexToRgb(hex) {
+  const s = String(hex || '').replace('#', '');
+  const v = s.length === 3 ? s.split('').map((c) => c + c).join('') : s;
+  const n = parseInt(v, 16);
+  if (!isFinite(n)) return [200, 155, 98];
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHex(r, g, b) {
+  const f = (x) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0');
+  return `#${f(r)}${f(g)}${f(b)}`.toUpperCase();
+}
+
+function rgbToHsl([r, g, b]) {
+  const R = r / 255;
+  const G = g / 255;
+  const B = b / 255;
+  const max = Math.max(R, G, B);
+  const min = Math.min(R, G, B);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === R) h = ((G - B) / d + (G < B ? 6 : 0)) / 6;
+  else if (max === G) h = ((B - R) / d + 2) / 6;
+  else h = ((R - G) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function hslToRgb([h, s, l]) {
+  const H = ((h % 1) + 1) % 1;
+  const S = Math.max(0, Math.min(1, s));
+  const L = Math.max(0, Math.min(1, l));
+  if (S === 0) {
+    const v = L * 255;
+    return [v, v, v];
+  }
+  const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
+  const p = 2 * L - q;
+  const hue2rgb = (t) => {
+    let T = t;
+    if (T < 0) T += 1;
+    if (T > 1) T -= 1;
+    if (T < 1 / 6) return p + (q - p) * 6 * T;
+    if (T < 1 / 2) return q;
+    if (T < 2 / 3) return p + (q - p) * (2 / 3 - T) * 6;
+    return p;
+  };
+  return [hue2rgb(H + 1 / 3) * 255, hue2rgb(H) * 255, hue2rgb(H - 1 / 3) * 255];
+}
+
+/** 在 HSL 空间平移颜色，越界自动夹紧 */
+function shiftColor(hex, dh, ds, dl) {
+  const [h, s, l] = rgbToHsl(hexToRgb(hex));
+  return rgbToHex(...hslToRgb([h + dh / 360, Math.max(0.06, Math.min(1, s + ds)), Math.max(0.14, Math.min(0.96, l + dl))]));
+}
+
+/** 花色专用：先换色相，再把饱和度和明度压到温和区间，避免荧光色 */
+function toneColor(hex, dh, maxS, loL, hiL) {
+  const [h, s, l] = rgbToHsl(hexToRgb(hex));
+  return rgbToHex(...hslToRgb([h + dh / 360, Math.min(s, maxS), Math.max(loL, Math.min(hiL, l))]));
+}
+
+const LOOK_PATTERNS = [
+  { key: 'solid', name: '纯色' },
+  { key: 'spots', name: '圆点花' },
+  { key: 'stripes', name: '条纹' },
+  { key: 'patch', name: '拼色' },
+  { key: 'belly', name: '白肚' },
+  { key: 'speckle', name: '麻点' },
+];
+
+const LOOK_ACCESSORIES = [
+  { key: 'none', name: '' },
+  { key: 'scarf', name: '围巾' },
+  { key: 'glasses', name: '眼镜' },
+  { key: 'bow', name: '蝴蝶结' },
+  { key: 'bell', name: '铃铛' },
+  { key: 'hat', name: '小帽' },
+];
+
+const LOOK_COMBS = ['triple', 'crest', 'single', 'fluff'];
+const LOOK_TAILS = ['fan', 'curl', 'long', 'short'];
+
+/**
+ * 由（基金代码，品种）派生稳定外观。seed 建议传基金代码。
+ */
+function lookOf(seed, breedKey) {
+  const base = breedInfo(breedKey);
+  const key = String(seed || base.key || 'x');
+  const h = hash32(key + '|' + base.key);
+  const pick = (arr, shift) => arr[(h >>> shift) % arr.length];
+
+  const pattern = pick(LOOK_PATTERNS, 0);
+  const accessory = pick(LOOK_ACCESSORIES, 4);
+  const comb = pick(LOOK_COMBS, 7);
+  const tail = pick(LOOK_TAILS, 11);
+
+  const [, s0, l0] = rgbToHsl(hexToRgb(base.color));
+  const pale = s0 < 0.22 || l0 > 0.84; // 白羽 / 灰羽这类近白色，用色温与明暗变化区分
+  const dh = pale ? (((h >>> 13) % 7) - 3) * 13 : (((h >>> 13) % 9) - 4) * 6;
+  const dl = pale ? -((h >>> 17) % 5) * 0.028 : (((h >>> 17) % 5) - 2) * 0.022;
+  const body = shiftColor(base.color, dh, pale ? 0.06 : 0.03, dl);
+  const accent = shiftColor(base.accent, dh / 2, 0.02, 0);
+  const accent2 = toneColor(base.accent, 145 + ((h >>> 21) % 70), 0.42, 0.4, 0.62);
+
+  return {
+    seed: key,
+    variant: h % 4,
+    pattern: pattern.key,
+    patternName: pattern.name,
+    accessory: accessory.key,
+    comb,
+    tail,
+    body,
+    accent,
+    accent2,
+    combColor: shiftColor(base.accent, 0, 0.18, 0.02),
+    name: [pattern.name, accessory.name].filter(Boolean).join('·'),
+  };
+}
+
 function levelInfo(growth) {
   let cur = LEVELS[0];
   let next = null;
@@ -206,12 +345,13 @@ function decay(chickens) {
   }
 }
 
+/** 只有进了鸡舍（已填成本价 + 份额）的鸡才会自然衰减；自选里的观察鸡不受影响 */
+const IN_YARD = 'a.released_at IS NULL AND a.cost_price > 0 AND a.shares > 0';
+
 function decayAll(userId) {
   const rows = db
-    .prepare(
-      `SELECT c.* FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
-       WHERE a.user_id = ? AND a.released_at IS NULL`
-    )
+    .prepare(`SELECT c.* FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
+       WHERE a.user_id = ? AND ${IN_YARD}`)
     .all(userId);
   decay(rows);
 }
@@ -224,11 +364,13 @@ const COOLDOWN = { feed: 2 * 3600 * 1000, pat: 4 * 3600 * 1000 };
 function checkCooldown(chickenId, action, userId) {
   const c = db
     .prepare(
-      `SELECT c.*, a.user_id, a.nickname, a.fund_code FROM chickens c
+      `SELECT c.*, a.user_id, a.nickname, a.fund_code, a.cost_price, a.shares FROM chickens c
        JOIN adoptions a ON a.id = c.adoption_id WHERE c.id = ?`
     )
     .get(chickenId);
   if (!c || c.user_id !== userId) return { error: 'not_found' };
+  // 没设置持仓的基金不在鸡舍里，也不能喂 / 摸
+  if (!(Number(c.cost_price) > 0 && Number(c.shares) > 0)) return { error: 'no_position' };
   const cd = JSON.parse(c.cooldowns || '{}');
   const now = Date.now();
   if (cd[action] && now - cd[action] < COOLDOWN[action]) {
@@ -281,7 +423,7 @@ function interact(chickenId, action, userId, material = null) {
     action,
     bonus,
     material: material ? material.label : null,
-    chicken: publicChicken(c),
+    chicken: publicChicken(c, c.fund_code),
     text: material ? `${base}（${material.label}，成长 +${bonus}）` : base,
   };
 }
@@ -296,7 +438,7 @@ function careNeeded(userId) {
     .prepare(
       `SELECT a.fund_code, a.nickname, c.satiety, c.sick, c.cooldowns, c.id AS chicken_id
        FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
-       WHERE a.user_id = ? AND a.released_at IS NULL AND (c.satiety < 30 OR c.sick = 1)
+       WHERE a.user_id = ? AND ${IN_YARD} AND (c.satiety < 30 OR c.sick = 1)
        ORDER BY c.satiety ASC`
     )
     .all(userId)
@@ -323,7 +465,7 @@ function yardAction(userId, action) {
   const rows = db
     .prepare(
       `SELECT c.* FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
-       WHERE a.user_id = ? AND a.released_at IS NULL`
+       WHERE a.user_id = ? AND ${IN_YARD}`
     )
     .all(userId);
   const now = new Date().toISOString();
@@ -342,17 +484,19 @@ function yardAction(userId, action) {
   return { ok: true, affected: rows.length };
 }
 
-function publicChicken(c) {
+function publicChicken(c, seed) {
   const lv = levelInfo(c.growth);
   const mood = overallMood(c);
   const cd = JSON.parse(c.cooldowns || '{}');
   const now = Date.now();
+  const look = lookOf(seed || c.adoption_id || c.id, c.breed);
   return {
     id: c.id,
     breed: c.breed,
     breedName: breedInfo(c.breed).name,
     breedDesc: breedInfo(c.breed).desc,
-    colors: { body: breedInfo(c.breed).color, accent: breedInfo(c.breed).accent },
+    colors: { body: look.body, accent: look.accent },
+    look,
     level: lv.level,
     levelName: lv.levelName,
     growth: c.growth,
@@ -389,6 +533,7 @@ module.exports = {
   BREEDS,
   breedOf,
   breedInfo,
+  lookOf,
   levelInfo,
   getChicken,
   applyDailyEvent,

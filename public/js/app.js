@@ -7,6 +7,7 @@ import * as Detail from './pages/detail.js';
 import * as Discover from './pages/discover.js';
 import * as Me from './pages/me.js';
 import * as ReportPage from './pages/report.js';
+import { stopLive } from './live.js';
 
 const state = { user: null, settings: {}, route: { name: 'yard', param: '' } };
 
@@ -167,6 +168,7 @@ async function route() {
   const app = document.getElementById('app');
   const r = parseHash();
   state.route = r;
+  stopLive();
 
   if (!state.user) {
     app.innerHTML = authHtml();

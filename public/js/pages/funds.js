@@ -4,6 +4,7 @@ import { esc, pct, pctClass, fmtAmount, toast, modal, confirmBox } from '../util
 import { attachAutocomplete } from '../autocomplete.js';
 import { getState } from '../app.js';
 import { showAchievements } from './yard.js';
+import { startLive } from '../live.js';
 
 let data = null;
 let groups = [];
@@ -47,6 +48,7 @@ export async function render() {
     ['profit', '盈利'],
     ['loss', '亏损'],
     ['hungry', '饿了'],
+    ['watching', '未入场'],
   ]
     .map(([v, t]) => `<button data-f="${v}" class="${view.filter === v ? 'active' : ''}">${t}</button>`)
     .join('');
@@ -57,25 +59,35 @@ export async function render() {
       if (view.compact) {
         return `<div class="list-row" data-code="${esc(it.fundCode)}">
           <div class="lr-main">
-            <div class="lr-name">${esc(it.nickname)} <span class="muted" style="font-weight:400">${esc(it.fundCode)}</span></div>
-            <div class="lr-sub">${esc(c.breedName || '')} · Lv.${c.level || 1} · 持有 ${it.holdingDays} 天${c.hungry ? ' · 🍚饿了' : ''}</div>
+            <div class="lr-name">${esc(it.nickname)} <span class="muted" style="font-weight:400">${esc(it.fundCode)}</span>${
+              it.hasPosition ? '' : ' <span class="tag-watch">未入场</span>'
+            }</div>
+            <div class="lr-sub">${esc(it.category || c.breedName || '')} · Lv.${c.level || 1} · 持有 ${it.holdingDays} 天${
+              c.hungry && it.hasPosition ? ' · 🍚饿了' : ''
+            }</div>
           </div>
           <div class="lr-right">
-            <div class="num ${pctClass(it.todayPct)}" style="font-weight:700">${pct(it.todayPct)}</div>
+            <div class="num ${pctClass(it.todayPct)}" style="font-weight:700" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
             <div class="lr-sub num ${pctClass(it.profitRate)}">${it.profitRate === null ? '--' : pct(it.profitRate, 1)}</div>
           </div>
         </div>`;
       }
-      return `<div class="chicken-card" data-code="${esc(it.fundCode)}">
+      return `<div class="chicken-card ${it.hasPosition ? '' : 'watching'}" data-code="${esc(it.fundCode)}">
         <span class="badge-lv">Lv.${c.level || 1}</span>
-        ${c.hungry ? '<span class="badge-state">🍚</span>' : ''}
-        <div class="yard-bg">${chickenSVG(c, { size: 92, showHungry: true })}</div>
+        ${it.hasPosition ? (c.hungry ? '<span class="badge-state">🍚</span>' : '') : '<span class="badge-state">👀</span>'}
+        <div class="yard-bg">${chickenSVG(c, { size: 92, showHungry: !!it.hasPosition })}</div>
         <div class="name">${esc(it.nickname)}</div>
-        <div class="sub">${esc(it.fundCode)} · ${esc(c.breedName || '')}</div>
-        <div class="pct ${pctClass(it.todayPct)}">${pct(it.todayPct)}</div>
-        <div class="sub">收益率 <b class="${pctClass(it.profitRate)}">${it.profitRate === null ? '--' : pct(it.profitRate, 1)}</b></div>
+        <div class="sub" title="${esc(c.breedName || '')}${c.look && c.look.name ? '·' + esc(c.look.name) : ''}">${esc(it.fundCode)} · ${esc(it.category || c.breedName || '')}</div>
+        <div class="pct ${pctClass(it.todayPct)}" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
+        ${
+          it.hasPosition
+            ? `<div class="sub">收益率 <b class="${pctClass(it.profitRate)}">${it.profitRate === null ? '--' : pct(it.profitRate, 1)}</b></div>`
+            : `<div class="sub">未设置持仓 · 暂不进鸡舍</div>`
+        }
         <div class="chicken-actions">
-          <button class="btn ghost small" data-edit="${esc(it.fundCode)}">编辑</button>
+          <button class="btn ${it.hasPosition ? 'ghost ' : ''}small" data-edit="${esc(it.fundCode)}">${
+            it.hasPosition ? '编辑' : '设置持仓'
+          }</button>
           <button class="btn ghost small" data-release="${esc(it.fundCode)}">放归</button>
         </div>
       </div>`;
@@ -102,7 +114,18 @@ export async function render() {
 
     <div class="card">
       <div class="card-title">自选列表<span class="spacer"></span>
+        <span class="live-tag" data-live-state>实时</span>
+        <button class="live-refresh" data-live-refresh title="立即刷新涨跌幅">↻</button>
         <span class="muted" style="font-weight:400;font-size:12px">${data.count} / ${data.maxAdoptions}</span></div>
+      <div class="muted" style="font-size:12px;margin:-2px 0 8px" data-live-time>更新于 --:--:--</div>
+      ${
+        data.watching
+          ? `<div class="yard-gate">
+              <span>🐣 有 <b>${data.watching}</b> 只基金还没设置持仓，只在自选里观察，<b>填好成本价与份额后才会进鸡舍</b>。</span>
+              <button class="btn ghost small" data-f="watching">只看未入场</button>
+            </div>`
+          : ''
+      }
       ${
         data.items.length
           ? view.compact
@@ -117,6 +140,7 @@ export async function render() {
 
 export async function mount(r) {
   root = r;
+  startLive(r);
 
   r.querySelectorAll('[data-g]').forEach((b) => {
     b.onclick = () => {
@@ -195,7 +219,7 @@ function editModal(code) {
   const it = (data.items || []).find((x) => x.fundCode === code);
   if (!it) return;
   modal(
-    '编辑 ' + code,
+    (it.hasPosition ? '编辑 ' : '设置持仓 · ') + code,
     () => `
       <div class="field"><label>昵称</label><input class="input" id="ed-nick" value="${esc(it.nickname || '')}"></div>
       <div class="field"><label>分组</label><select class="input" id="ed-group">
@@ -238,8 +262,37 @@ export function adoptModal() {
         <div id="fd-result" class="muted" style="font-size:13px;margin-top:6px">输入后会自动联想匹配的基金，↑↓ 选择、回车确认</div>
       </div>
       <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
-      <div class="field"><label>基金代码</label><input class="input" id="fd-code" placeholder="6 位数字"></div>
-      <div class="field"><label>昵称（可留空）</label><input class="input" id="fd-nick"></div>
+      <div class="field"><label>按类型挑选（点一行即选中）</label>
+        <div class="chip-row" id="fd-types">
+          ${[
+            ['all', '全部'],
+            ['zs', '指数'],
+            ['gp', '股票'],
+            ['hh', '混合'],
+            ['zq', '债券'],
+            ['qdii', 'QDII'],
+            ['fof', 'FOF'],
+          ]
+            .map(([k, label]) => `<button type="button" class="chip${k === 'all' ? ' active' : ''}" data-type="${k}">${label}</button>`)
+            .join('')}
+        </div>
+        <div class="explore-bar">
+          <select class="input" id="fd-xsort">
+            <option value="1nzf">按近 1 年收益</option>
+            <option value="6yzf">按近 6 月收益</option>
+            <option value="3yzf">按近 3 月收益</option>
+            <option value="1yzf">按近 1 月收益</option>
+            <option value="rzdf">按日涨幅</option>
+            <option value="jnzf">按今年来收益</option>
+            <option value="lnzf">按成立来收益</option>
+          </select>
+          <button type="button" class="btn ghost small" id="fd-more">换一批</button>
+        </div>
+        <div id="fd-list" class="fund-list"><div class="muted" style="padding:10px;font-size:12px">加载中…</div></div>
+        <div class="muted" id="fd-explore-tip" style="font-size:12px;margin-top:4px">—</div>
+      </div>
+      <input type="hidden" id="fd-code">
+      <input type="hidden" id="fd-nick">
       <div class="field"><label>分组</label><select class="input" id="fd-group">
         ${groups.map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')}
       </select></div>
@@ -247,6 +300,10 @@ export function adoptModal() {
         <div class="field"><label>成本价（选填）</label><input class="input" id="fd-cost" type="number" step="0.0001"></div>
         <div class="field"><label>份额（选填）</label><input class="input" id="fd-shares" type="number" step="0.01"></div>
       </div>
+      <div class="muted" style="font-size:12px;margin:-4px 0 8px">
+        成本价与份额都填了才算建仓，这只鸡才会进鸡舍；留空则先放进自选里观察。
+      </div>
+      <div class="picked-fund" id="fd-picked">未选择基金：从上面列表点一行，或搜索后选中</div>
       <button class="btn block" id="fd-adopt">领养</button>`,
     (body, close) => {
       const qInput = body.querySelector('#fd-q');
@@ -254,12 +311,94 @@ export function adoptModal() {
       const nickInput = body.querySelector('#fd-nick');
       const resultBox = body.querySelector('#fd-result');
 
+      /* ---------- 按类型 / 业绩筛选基金 ---------- */
+      const listBox = body.querySelector('#fd-list');
+      const tipBox = body.querySelector('#fd-explore-tip');
+      const sortSel = body.querySelector('#fd-xsort');
+      const ex = { type: 'all', sort: '1nzf', page: 1, loading: false };
+      const fmtP = (v) => (typeof v === 'number' ? `${v > 0 ? '+' : ''}${v.toFixed(2)}%` : '--');
+
+      const pickedBox = body.querySelector('#fd-picked');
+      const setPicked = (name, code) => {
+        codeInput.value = code;
+        nickInput.value = (name || '').slice(0, 12);
+        resultBox.innerHTML = `<span class="selected-fund">✓ ${esc(name || code)} ${esc(code)}</span>`;
+        if (pickedBox)
+          pickedBox.innerHTML = `已选：<b>${esc(name || code)}</b> <span class="muted">${esc(code)}</span>`;
+      };
+
+      const pickRow = (btn) => {
+        listBox.querySelectorAll('.fund-row').forEach((x) => x.classList.toggle('active', x === btn));
+        setPicked(btn.getAttribute('data-name'), btn.getAttribute('data-code'));
+      };
+
+      const bindRows = () => {
+        listBox.querySelectorAll('.fund-row').forEach((b) => {
+          b.onclick = () => pickRow(b);
+        });
+      };
+
+      const loadExplore = async () => {
+        if (ex.loading) return;
+        ex.loading = true;
+        listBox.innerHTML = '<div class="muted" style="padding:10px;font-size:12px">加载中…</div>';
+        try {
+          const d = await Api.explore(`type=${ex.type}&sort=${ex.sort}&page=${ex.page}&size=20`);
+          const items = d.items || [];
+          listBox.innerHTML = items.length
+            ? items
+                .map(
+                  (it) => `<button type="button" class="fund-row" data-code="${esc(it.code)}" data-name="${esc(
+                    it.name || ''
+                  )}">
+                    <div class="fr-name">${esc(it.name || it.code)}</div>
+                    <div class="fr-meta">
+                      <span>${esc(it.code)}</span>
+                      <span>近1年 <b class="${pctClass(it.y1)}">${fmtP(it.y1)}</b></span>
+                      <span>近3月 <b class="${pctClass(it.m3)}">${fmtP(it.m3)}</b></span>
+                      ${it.estab ? `<span>${esc(it.estab)} 成立</span>` : ''}
+                    </div>
+                  </button>`
+                )
+                .join('')
+            : '<div class="empty" style="padding:12px">这一类暂时没有数据</div>';
+          bindRows();
+          const c = d.counts || {};
+          tipBox.textContent = `共 ${d.total || 0} 只 · 第 ${d.page || ex.page} 页${
+            c.all ? ` · 指数 ${c.zs} / 股票 ${c.gp} / 混合 ${c.hh} / 债券 ${c.zq} / QDII ${c.qdii} / FOF ${c.fof}` : ''
+          }`;
+        } catch (e) {
+          listBox.innerHTML = '<div class="empty" style="padding:12px">加载失败，稍后重试</div>';
+          tipBox.textContent = '—';
+        } finally {
+          ex.loading = false;
+        }
+      };
+
+      body.querySelectorAll('#fd-types .chip').forEach((chip) => {
+        chip.onclick = () => {
+          body.querySelectorAll('#fd-types .chip').forEach((x) => x.classList.toggle('active', x === chip));
+          ex.type = chip.getAttribute('data-type');
+          ex.page = 1;
+          loadExplore();
+        };
+      });
+      sortSel.onchange = () => {
+        ex.sort = sortSel.value;
+        ex.page = 1;
+        loadExplore();
+      };
+      body.querySelector('#fd-more').onclick = () => {
+        ex.page += 1;
+        loadExplore();
+      };
+      loadExplore();
+
       const ac = attachAutocomplete(qInput, {
         fetchItems: async (q) => (await Api.search(q)).items,
         onPick: (it) => {
-          codeInput.value = it.code;
-          if (!nickInput.value.trim()) nickInput.value = (it.name || '').slice(0, 12);
-          resultBox.innerHTML = `<span class="selected-fund">✓ ${esc(it.name || it.code)} ${esc(it.code)}</span>`;
+          setPicked(it.name || it.code, it.code);
+          listBox.querySelectorAll('.fund-row').forEach((x) => x.classList.remove('active'));
         },
       });
 
@@ -274,7 +413,7 @@ export function adoptModal() {
       setTimeout(() => qInput.focus(), 60);
       body.querySelector('#fd-adopt').onclick = async () => {
         const code = body.querySelector('#fd-code').value.trim();
-        if (!/^\d{6}$/.test(code)) return toast('请输入 6 位基金代码');
+        if (!/^\d{6}$/.test(code)) return toast('先从列表里选一只基金，或在上面搜索选中');
         try {
           const out = await Api.adopt({
             code,
@@ -284,7 +423,12 @@ export function adoptModal() {
             shares: body.querySelector('#fd-shares').value || null,
           });
           close();
-          toast(`领养成功：${esc(out.fund?.name || code)}（${esc(out.breed)}）`);
+          const positioned = Number(body.querySelector('#fd-cost').value) > 0 && Number(body.querySelector('#fd-shares').value) > 0;
+          toast(
+            positioned
+              ? `领养成功：${esc(out.fund?.name || code)}（${esc(out.breed)}）`
+              : `已加入自选：${esc(out.fund?.name || code)}，设置持仓后才会进鸡舍`
+          );
           if (out.newAchievements?.length) showAchievements(out.newAchievements);
           const u = getState().user;
           if (u) u.feed += 10;

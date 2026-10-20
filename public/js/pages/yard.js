@@ -1,13 +1,16 @@
 import { Api } from '../api.js';
 import { chickenSVG, eventEmoji } from '../chicken.js';
-import { esc, pct, pctClass, fmtAmount, toast, modal } from '../util.js';
+import { esc, pct, pctClass, fmtAmount, money, fmtTime, toast, modal } from '../util.js';
 import { getState } from '../app.js';
 import { feedModal, patModal } from './care.js';
+import { startLive } from '../live.js';
 
 let data = null;
 let root = null;
 
 const WICON = { sunny: '☀️', cloudy: '⛅', overcast: '☁️', rain: '🌧️' };
+const GI_FLAG = { A股: '🇨🇳', 港股: '🇭🇰', 亚太: '🌏', 美股: '🇺🇸', 欧洲: '🇪🇺', 其他: '🌐' };
+let giCache = null;
 
 async function rerender() {
   if (!root) return;
@@ -33,13 +36,25 @@ export async function render() {
       <div style="flex:1">
         <div class="w-num">${esc(w.label || '多云')}</div>
         <div class="w-main">
-          ${idx ? `${esc(idx.name)} <span class="${pctClass(idx.pct)}">${pct(idx.pct)}</span>` : '大盘数据暂不可用'}
-          · 鸡舍今日${sum.total ? ` ${sum.up} 涨 ${sum.down} 跌` : '空空如也'}
+          <button class="idx-btn" data-act="global-indices" title="查看全球大盘指数">
+            ${
+              idx
+                ? `<span data-live-index>${esc(idx.name)} <span class="${pctClass(idx.pct)}">${pct(idx.pct)}</span></span>`
+                : '<span>大盘数据暂不可用</span>'
+            }
+            <span class="idx-more">🌍 全球</span>
+          </button>
+          · 鸡舍今日<span data-live-summary="updown">${sum.total ? ` ${sum.up} 涨 ${sum.down} 跌` : '空空如也'}</span>
         </div>
       </div>
       <div style="text-align:right">
-        <div class="w-main">今日总盈亏</div>
-        <div class="w-num">${sum.todayPct === null ? '--' : pct(sum.todayPct)}</div>
+        <div class="w-main">
+          今日总盈亏
+          <span class="live-tag" data-live-state>实时</span>
+          <button class="live-refresh" data-live-refresh title="立即刷新">↻</button>
+        </div>
+        <div class="w-num ${pctClass(sum.todayPct)}" data-live-summary="todayPct">${sum.todayPct === null ? '--' : pct(sum.todayPct)}</div>
+        <div class="w-main" style="font-size:11px" data-live-time>更新于 --:--:--</div>
       </div>
     </div>`;
 
@@ -48,9 +63,9 @@ export async function render() {
       <div class="card-title">今日概况<span class="spacer"></span>
         <span class="muted" style="font-weight:400;font-size:12px">${data.date}</span></div>
       <div class="grid-3">
-        <div class="stat"><div class="v ${pctClass(sum.todayPct)}">${sum.todayPct === null ? '--' : pct(sum.todayPct)}</div><div class="k">今日估算</div></div>
-        <div class="stat"><div class="v">${hasHolding ? fmtAmount(sum.marketValue, s.settings, 0) : '--'}</div><div class="k">持仓市值</div></div>
-        <div class="stat"><div class="v ${pctClass(sum.profit)}">${sum.profit === null ? '--' : fmtAmount(sum.profit, s.settings, 0)}</div><div class="k">累计盈亏</div></div>
+        <div class="stat"><div class="v ${pctClass(sum.todayPct)}" data-live-summary="todayPct">${sum.todayPct === null ? '--' : pct(sum.todayPct)}</div><div class="k">今日估算</div></div>
+        <div class="stat"><div class="v" data-live-summary="marketValue">${hasHolding ? fmtAmount(sum.marketValue, s.settings, 0) : '--'}</div><div class="k">持仓市值</div></div>
+        <div class="stat"><div class="v ${pctClass(sum.profit)}" data-live-summary="profit">${sum.profit === null ? '--' : fmtAmount(sum.profit, s.settings, 0)}</div><div class="k">累计盈亏</div></div>
       </div>
       ${
         hasHolding
@@ -101,8 +116,8 @@ export async function render() {
         <span class="badge-state">${c.sick ? '🌧️' : c.hungry ? '🍚' : ev ? eventEmoji(ev.type) : ''}</span>
         <div class="yard-bg">${chickenSVG(c, { size: 96, event: ev && ev.type, showHungry: true })}</div>
         <div class="name">${esc(it.nickname)}</div>
-        <div class="sub">${esc(it.fundCode)} · ${esc(c.breedName || '')}</div>
-        <div class="pct ${pctClass(it.todayPct)}">${pct(it.todayPct)}</div>
+        <div class="sub" title="${esc(c.breedName || '')}${c.look && c.look.name ? '·' + esc(c.look.name) : ''}">${esc(it.fundCode)} · ${esc(it.category || c.breedName || '')}</div>
+        <div class="pct ${pctClass(it.todayPct)}" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
         <div class="bar-row"><span>成长</span><span class="bar"><span style="width:${Math.round(
           (c.progress || 0) * 100
         )}%"></span></span><b>${c.growth || 0}</b></div>
@@ -118,14 +133,26 @@ export async function render() {
     })
     .join('');
 
+  const watchingHint = data.watching
+    ? `<div class="yard-gate">
+        <span>🐣 自选里还有 <b>${data.watching}</b> 只基金没设置持仓，它们还在舍外观察，<b>填好成本价与份额后才会进鸡舍</b>。</span>
+        <button class="btn ghost small" data-go-watch>去设置</button>
+      </div>`
+    : '';
+
   const chickenCard = `
     <div class="card">
       <div class="card-title">我的鸡舍<span class="spacer"></span><span class="muted" style="font-weight:400;font-size:12px">共 ${data.items.length} 只</span></div>
       ${
         data.items.length
           ? `<div class="chicken-grid">${chickenCards}</div>`
-          : `<div class="empty"><span class="big">🐣</span>鸡舍还空着<br/>去「自选」领养第一只基金鸡吧</div>`
+          : `<div class="empty"><span class="big">🐣</span>鸡舍里还没有鸡<br/>${
+              data.watching
+                ? `自选里已有 ${data.watching} 只基金，设置持仓后才会入舍`
+                : '去「自选」领养第一只基金鸡吧'
+            }</div>`
       }
+      ${watchingHint}
     </div>`;
 
   const eventsHtml = `
@@ -177,6 +204,20 @@ export async function render() {
 
 export async function mount(r) {
   root = r;
+  startLive(r);
+
+  r.querySelectorAll('[data-go-watch]').forEach((b) => {
+    b.onclick = () => {
+      location.hash = '#/funds';
+    };
+  });
+
+  r.querySelectorAll('[data-act="global-indices"]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      globalIndicesModal();
+    };
+  });
 
   r.querySelectorAll('.chicken-card').forEach((el) => {
     el.onclick = (e) => {
@@ -269,6 +310,78 @@ export async function mount(r) {
       if (code) location.hash = '#/fund/' + code;
     };
   });
+}
+
+function giRowHtml(it) {
+  const t = it.time ? String(it.time).replace(/^\d{4}-/, '') : '';
+  const chg = it.change === null || it.change === undefined ? '' : `${it.change > 0 ? '+' : ''}${money(it.change)} · `;
+  return `<div class="gi-row">
+    <div class="gi-main">
+      <div class="gi-name">${esc(it.name)}</div>
+      ${t ? `<div class="gi-time">${esc(t)}</div>` : ''}
+    </div>
+    <div class="gi-right">
+      <div class="gi-val">${money(it.price)}</div>
+      <div class="gi-delta ${pctClass(it.pct)}">${chg}${pct(it.pct)}</div>
+    </div>
+  </div>`;
+}
+
+function giHtml(g) {
+  const groups = (g && g.groups) || [];
+  if (!groups.length) return `<div class="empty" style="padding:16px">暂时取不到全球行情，稍后再试试</div>`;
+  return groups
+    .map(
+      (gr) => `<div class="gi-group">
+        <div class="gi-title">${GI_FLAG[gr.region] || '🌐'} ${esc(gr.region)}</div>
+        ${gr.items.map(giRowHtml).join('')}
+      </div>`
+    )
+    .join('');
+}
+
+/** 全球大盘指数面板：首页天气栏的大盘点位点击打开 */
+export function globalIndicesModal() {
+  modal(
+    '全球大盘指数',
+    () => `
+      <div class="gi-tip muted" style="font-size:12px"></div>
+      <div class="gi-body">${giCache ? giHtml(giCache) : '<div class="empty" style="padding:16px">正在拉取全球行情…</div>'}</div>
+      <div class="muted" style="font-size:12px;margin-top:10px;line-height:1.5">
+        行情来自第三方公开接口，盘中可能有延迟，非交易时段显示的是最近一次收盘。
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost small" data-refresh>刷新</button>
+        <button class="btn small" data-close>关闭</button>
+      </div>`,
+    (body, close) => {
+      const paint = (g) => {
+        const b = body.querySelector('.gi-body');
+        if (b) b.innerHTML = giHtml(g);
+        const tip = body.querySelector('.gi-tip');
+        if (tip)
+          tip.textContent = g && g.updatedAt
+            ? `更新于 ${fmtTime(g.updatedAt)}${g.stale ? '（离线缓存）' : ''}`
+            : '';
+      };
+      const load = async () => {
+        const btn = body.querySelector('[data-refresh]');
+        if (btn) btn.classList.add('loading');
+        try {
+          giCache = await Api.globalIndices();
+          paint(giCache);
+        } catch (err) {
+          const b = body.querySelector('.gi-body');
+          if (b) b.innerHTML = `<div class="empty" style="padding:16px">拉取失败：${esc(err.message || '未知错误')}</div>`;
+        } finally {
+          if (btn) btn.classList.remove('loading');
+        }
+      };
+      body.querySelector('[data-close]').onclick = close;
+      body.querySelector('[data-refresh]').onclick = load;
+      load();
+    }
+  );
 }
 
 export function showAchievements(list) {

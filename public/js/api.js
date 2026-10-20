@@ -43,6 +43,13 @@ export const Api = {
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   yard: () => request('/yard'),
+  // 按类型 / 业绩筛选基金
+  explore: (qs = '') => request('/explore' + (qs ? '?' + qs : '')),
+  // 实时行情（轮询）：codes 为空时返回当前用户全部持仓
+  quotes: (codes = []) =>
+    request('/quotes?codes=' + (Array.isArray(codes) ? codes.join(',') : String(codes || ''))),
+  // 全球大盘指数（分组）
+  globalIndices: () => request('/indices/global'),
   funds: (q = '') => request('/funds' + (q ? '?' + q : '')),
   fund: (code) => request('/funds/' + code),
   adopt: (b) => request('/funds', { method: 'POST', body: b }),

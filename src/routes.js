@@ -247,7 +247,7 @@ router.post('/yard/feed-all', auth.requireAuth, (req, res) => {
   const rows = db
     .prepare(
       `SELECT c.id FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
-       WHERE a.user_id = ? AND a.released_at IS NULL AND c.satiety < 100`
+       WHERE a.user_id = ? AND a.released_at IS NULL AND a.cost_price > 0 AND a.shares > 0 AND c.satiety < 100`
     )
     .all(req.user.id);
   if (!rows.length) return res.json({ ok: true, fed: 0, feedLeft: user.feed, text: '大家都不饿' });
@@ -360,9 +360,11 @@ router.get('/funds', auth.requireAuth, async (req, res) => {
     if (groupId === 'none') list = list.filter((i) => !i.groupId);
     if (filter === 'profit') list = list.filter((i) => (i.profitRate ?? 0) > 0);
     if (filter === 'loss') list = list.filter((i) => (i.profitRate ?? 0) < 0);
-    if (filter === 'hungry') list = list.filter((i) => i.chicken?.hungry);
+    if (filter === 'hungry') list = list.filter((i) => i.chicken?.hungry && i.hasPosition);
     if (filter === 'up') list = list.filter((i) => (i.todayPct ?? 0) > 0);
     if (filter === 'down') list = list.filter((i) => (i.todayPct ?? 0) < 0);
+    if (filter === 'in_yard') list = list.filter((i) => i.hasPosition);
+    if (filter === 'watching') list = list.filter((i) => !i.hasPosition);
 
     const cmp = {
       pct: (a, b) => (b.todayPct ?? -999) - (a.todayPct ?? -999),
@@ -373,16 +375,111 @@ router.get('/funds', auth.requireAuth, async (req, res) => {
     }[sort];
     if (cmp) list = [...list].sort(cmp);
 
+    const positioned = items.filter((i) => i.hasPosition).length;
     res.json({
       ok: true,
       items: list,
       count: list.length,
       total: items.length,
+      // 已建仓（进鸡舍）的数量 / 只在自选里观察的数量
+      positioned,
+      watching: items.length - positioned,
       maxAdoptions: config.maxAdoptions,
       updatedAt: nowISO(),
     });
   } catch (err) {
     res.status(500).json({ error: 'list_failed', message: String(err.message || err) });
+  }
+});
+
+/**
+ * 实时行情（供前端轮询）：
+ * - 数据要求不老于 15s，过期即回源重取，保证涨跌幅是当下的；
+ * - 只读，不结算鸡的状态，避免轮询把成长值 / 饱食度刷掉；
+ * - 顺带回一份按持仓市值加权的今日涨跌汇总，前端可直接更新概况卡片。
+ */
+router.get('/quotes', auth.requireAuth, async (req, res) => {
+  try {
+    const asked = String(req.query.codes || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((c) => CODE_RE.test(c))
+      .slice(0, 60);
+    const rows = db
+      .prepare('SELECT fund_code, cost_price, shares FROM adoptions WHERE user_id = ? AND released_at IS NULL')
+      .all(req.user.id);
+    const codes = asked.length ? asked : rows.map((r) => r.fund_code);
+
+    const maxAgeMs = quote.LIVE_MAX_AGE;
+    const [quotes, indices] = await Promise.all([
+      quote.getEstimates(codes, { maxAgeMs }),
+      quote.getIndices({ maxAgeMs }),
+    ]);
+
+    const items = {};
+    for (const c of codes) {
+      const q = quotes[c];
+      if (!q) {
+        const p = yardEngine.lastLocalPct(c);
+        items[c] = { code: c, pct: typeof p === 'number' ? round(p, 2) : null, live: false, updatedAt: null };
+        continue;
+      }
+      items[c] = {
+        code: c,
+        name: q.name || null,
+        nav: q.nav === undefined ? null : q.nav,
+        estimate: q.estimate === undefined ? null : q.estimate,
+        pct: typeof q.pct === 'number' ? round(q.pct, 2) : null,
+        navDate: q.navDate || null,
+        estimateTime: q.estimateTime || null,
+        live: q.live !== false,
+        approx: !!q.approx,
+        coverage: typeof q.coverage === 'number' ? q.coverage : null,
+        source: q.source || null,
+        updatedAt: q.updatedAt || null,
+      };
+    }
+
+    // 汇总只算鸡舍里的（已建仓）基金，与 /yard 口径保持一致
+    const pseudo = rows.filter((r) => Number(r.cost_price) > 0 && Number(r.shares) > 0).map((r) => {
+      const q = quotes[r.fund_code];
+      const pctV = q ? q.pct : yardEngine.lastLocalPct(r.fund_code);
+      const local = quote.latestLocalNav(r.fund_code);
+      const value = q ? q.estimate || q.nav : local ? local.nav : null;
+      let marketValue = null;
+      if (r.cost_price && r.shares && value) marketValue = r.shares * value;
+      return {
+        shares: r.shares,
+        costPrice: r.cost_price,
+        marketValue,
+        todayPct: typeof pctV === 'number' ? pctV : null,
+      };
+    });
+
+    res.json({
+      ok: true,
+      trading: quote.isTrading(),
+      updatedAt: nowISO(),
+      items,
+      summary: yardEngine.summarize(pseudo),
+      indices: indices.items || [],
+      indicesUpdatedAt: indices.updatedAt || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'quotes_failed', message: String(err.message || err) });
+  }
+});
+
+/**
+ * 全球大盘指数（首页天气栏点击后查看）：
+ * A股 / 港股 / 美股 / 亚太 / 欧洲 分组返回，数据来自腾讯 + 新浪公开接口。
+ */
+router.get('/indices/global', auth.requireAuth, async (req, res) => {
+  try {
+    const g = await quote.getGlobalIndices({ maxAgeMs: quote.LIVE_MAX_AGE });
+    res.json({ ok: true, ...g });
+  } catch (err) {
+    res.status(500).json({ error: 'global_indices_failed', message: String(err.message || err) });
   }
 });
 
@@ -449,16 +546,17 @@ router.patch('/funds/:code', auth.requireAuth, (req, res) => {
   const a = getAdoption(req.user.id, req.params.code);
   if (!a) return res.status(404).json({ error: 'not_found' });
   const { nickname, groupId, costPrice, shares, firstBuyDate } = req.body || {};
+  // 成本价 / 份额要能被清空（清空 = 退出鸡舍回到自选观察），所以不能再用 COALESCE
+  const num = (v) => (v === '' || v === null ? null : Number(v));
   db.prepare(
     `UPDATE adoptions SET nickname = COALESCE(?, nickname), group_id = ?,
-       cost_price = COALESCE(?, cost_price), shares = COALESCE(?, shares),
-       first_buy_date = COALESCE(?, first_buy_date)
+       cost_price = ?, shares = ?, first_buy_date = COALESCE(?, first_buy_date)
      WHERE id = ?`
   ).run(
     nickname !== undefined ? String(nickname).slice(0, 30) : null,
     groupId !== undefined ? groupId : a.group_id,
-    costPrice !== undefined ? (costPrice === '' ? null : Number(costPrice)) : null,
-    shares !== undefined ? (shares === '' ? null : Number(shares)) : null,
+    costPrice !== undefined ? num(costPrice) : a.cost_price,
+    shares !== undefined ? num(shares) : a.shares,
     firstBuyDate !== undefined ? firstBuyDate : null,
     a.id
   );
@@ -492,8 +590,11 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
   tasks.bump(req.user.id, 'check_yard', 1);
   const a = getAdoption(req.user.id, code);
   const info = await quote.getFundInfo(code);
-  const hist = await quote.getHistory(code, 60);
+  // 详情页支持 30/60/180/全部 切换，一次把全量净值取回来（命中缓存，6h 有效）
+  const hist = await quote.getFullHistory(code);
   const q = await quote.fetchEstimate(code);
+  // 按基金类型取差异化信息：指数→跟踪指数与重仓股，债券→重仓债券，其余→重仓股
+  const profile = await quote.getFundProfile(code, info.type || quote.normalizeType(info.category));
   if (!a) {
     return res.json({
       ok: true,
@@ -502,6 +603,7 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
       quote: q,
       history: hist.items,
       historyStale: !!hist.stale,
+      profile,
       reports: [],
       notes: [],
     });
@@ -543,13 +645,14 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
     quote: q,
     history: hist.items,
     historyStale: !!hist.stale,
+    profile,
     metrics: {
       current: current ? round(current, 4) : null,
       marketValue: marketValue ? round(marketValue, 2) : null,
       profit: profit === null ? null : round(profit, 2),
       profitRate: profitRate === null ? null : round(profitRate, 2),
     },
-    chicken: c ? chickenEngine.publicChicken(c) : null,
+    chicken: c ? chickenEngine.publicChicken(c, code) : null,
     trades,
     reports,
     notes: db
@@ -777,6 +880,21 @@ router.get('/search', auth.requireAuth, async (req, res) => {
   if (!q) return res.json({ items: [] });
   const items = await quote.search(q, 20);
   res.json({ items, query: q });
+});
+
+/** 按类型 / 业绩排序筛选基金（领养弹窗的「按类型挑」） */
+router.get('/explore', auth.requireAuth, async (req, res) => {
+  try {
+    const data = await quote.explore({
+      type: String(req.query.type || 'all'),
+      sort: String(req.query.sort || '1nzf'),
+      page: req.query.page,
+      size: req.query.size,
+    });
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    res.status(502).json({ error: 'explore_failed', message: String(err.message || err) });
+  }
 });
 
 /* ============================ 报告 ============================ */

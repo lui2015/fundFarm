@@ -176,7 +176,9 @@ export function navChart(points, opts = {}) {
       guide.setAttribute('x1', sx(idx).toFixed(1));
       guide.setAttribute('x2', sx(idx).toFixed(1));
       guide.style.display = '';
-      cursor.style.display = '';
+      // 注意：CSS 里 .chart-dot.cursor / .chart-tip 默认 display:none，
+      // 这里必须显式设成 block，不能用空串（空串会回落到 CSS 的 none）
+      cursor.style.display = 'block';
       cursor.style.left = `${px(idx)}%`;
       cursor.style.top = `${py(p.v)}%`;
 
@@ -184,10 +186,10 @@ export function navChart(points, opts = {}) {
       tip.innerHTML =
         `<b>${esc(p.date)}</b> · 净值 ${fmtNav(p.v)}` +
         (idx === 0 ? '' : `<br/>较起点 <b>${vsFirst >= 0 ? '+' : ''}${vsFirst.toFixed(2)}%</b>`);
-      tip.style.display = '';
+      tip.style.display = 'block';
       const left = (sx(idx) / VW) * rect.width;
       const tw = tip.offsetWidth || 120;
-      tip.style.left = `${Math.min(Math.max(left - tw / 2, 0), rect.width - tw)}px`;
+      tip.style.left = `${Math.min(Math.max(left - tw / 2, 0), Math.max(rect.width - tw, 0))}px`;
       tip.style.top = `${Math.max(((sy(p.v) / VH) * plot.clientHeight) - 58, 0)}px`;
     };
 

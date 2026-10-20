@@ -66,13 +66,24 @@ class TTLCache {
     return it.value;
   }
   set(key, value, ttlMs) {
-    this.map.set(key, { value, expires: Date.now() + (ttlMs || this.defaultTtl) });
+    this.map.set(key, { value, at: Date.now(), expires: Date.now() + (ttlMs || this.defaultTtl) });
     return value;
   }
   /** 缓存未命中时必须返回值的场景：失败时回退到过期数据 */
   getStale(key) {
     const it = this.map.get(key);
     return it ? it.value : undefined;
+  }
+  /** 数据写入至今的毫秒数（无缓存返回 Infinity） */
+  age(key) {
+    const it = this.map.get(key);
+    return it ? Date.now() - it.at : Infinity;
+  }
+  /** 实时场景：只要数据在 maxAgeMs 内就直接复用（哪怕 TTL 更长），否则视为过期需重新拉取 */
+  getWithin(key, maxAgeMs) {
+    const it = this.map.get(key);
+    if (!it) return undefined;
+    return Date.now() - it.at <= maxAgeMs ? it.value : undefined;
   }
 }
 

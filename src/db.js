@@ -280,6 +280,15 @@ if (!userCols.includes('is_admin')) {
   db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
 }
 
+/* ---------- 轻量迁移：基金实际分类（东财 FTYPE，如「指数型-股票」） ---------- */
+const fundCols = db.prepare('PRAGMA table_info(funds)').all().map((c) => c.name);
+if (!fundCols.includes('category')) {
+  db.exec('ALTER TABLE funds ADD COLUMN category TEXT');
+}
+if (!fundCols.includes('index_name')) {
+  db.exec('ALTER TABLE funds ADD COLUMN index_name TEXT');
+}
+
 /* ---------- 轻量迁移：报告内容类型（text / markdown / html / file） ---------- */
 const reportCols = db.prepare('PRAGMA table_info(reports)').all().map((c) => c.name);
 if (!reportCols.includes('content_type')) {

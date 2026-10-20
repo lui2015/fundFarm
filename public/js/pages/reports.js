@@ -431,7 +431,7 @@ export function chooseFundModal(reportId, onDone) {
                 (a) => `<div class="list-row" data-pick="${esc(a.fundCode)}">
                   <div class="lr-main">
                     <div class="lr-name">${esc(a.nickname || a.name)}</div>
-                    <div class="lr-sub">${esc(a.fundCode)} · ${esc(a.breedName || '')}</div>
+                    <div class="lr-sub">${esc(a.fundCode)} · ${esc(a.category || a.breedName || '')}</div>
                   </div>
                   <div class="lr-right"><span class="tag">选择</span></div>
                 </div>`
