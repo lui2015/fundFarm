@@ -307,3 +307,31 @@ export function eventEmoji(type) {
     system: '',
   }[type] || '';
 }
+
+/**
+ * 收益体型 → 鸡舍卡片背景氛围。
+ * 亏得越多越阴冷（飘雨），赚得越多越暖（阳光/金光/彩带），
+ * 让人不看数字、只扫一眼背景就能感觉到这只鸡养得好不好。
+ */
+const BG_BY_BUILD = {
+  veryThin: ['cold', 'rain'],
+  thin: ['drizzle', 'rain'],
+  slim: ['breeze', ''],
+  normal: ['grass', ''],
+  plump: ['sunny', 'spark'],
+  fat: ['golden', 'spark'],
+  obese: ['party', 'confetti'],
+};
+
+/** 背景 class：bg-cold / bg-drizzle / … / bg-party */
+export function yardBgClass(build) {
+  const hit = BG_BY_BUILD[build && build.key];
+  return `bg-${hit ? hit[0] : 'grass'}`;
+}
+
+/** 背景粒子层（雨 / 光点 / 彩带），无粒子时返回空串 */
+export function yardBgFx(build) {
+  const hit = BG_BY_BUILD[build && build.key];
+  const fx = hit ? hit[1] : '';
+  return fx ? `<i class="bg-fx fx-${fx}" aria-hidden="true"></i>` : '';
+}

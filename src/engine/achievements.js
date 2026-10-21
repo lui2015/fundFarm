@@ -120,7 +120,9 @@ function list(userId) {
        LEFT JOIN user_achievements ua ON ua.code = a.code AND ua.user_id = ?
        ORDER BY a.category, a.reward`
     )
-    .all(userId);
+    .all(userId)
+    // 鸡的「成长等级」体系已下线，对应的两个等级成就也不再展示
+    .filter((a) => !['level_3', 'level_5'].includes(a.code));
   return rows.map((a) => ({
     ...a,
     unlocked: !!a.unlocked_at,

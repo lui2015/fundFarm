@@ -1795,10 +1795,35 @@ textarea.input {
 }
 
 /* ---------- 登录 ---------- */
+/* 登录页单独占满一屏并水平 + 垂直居中（.app 在登录时不保留底部导航的内边距） */
+.app.auth-mode {
+  /* 登录页没有侧栏 / 底部导航，清掉桌面布局的内边距，整屏交给 .auth-wrap */
+  display: block;
+  padding: 0;
+}
 .auth-wrap {
+  width: 100%;
+  flex: 1 0 auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+  margin: 0;
+}
+.auth-wrap .auth-hero,
+.auth-wrap > .card,
+.auth-wrap > .disclaimer {
+  width: 100%;
   max-width: 420px;
-  margin: 8vh auto;
-  padding: 0 18px;
+}
+.auth-wrap > .card {
+  animation: slideUp 0.32s ease-out both;
+}
+.auth-wrap > .disclaimer {
+  margin-top: 12px;
 }
 .auth-hero {
   text-align: center;
@@ -1815,6 +1840,30 @@ textarea.input {
   margin: 0;
   color: var(--muted);
   font-size: 14px;
+}
+/* 矮屏（笔记本浏览器 / 横屏手机）：压缩头部，整块仍居中且不出现滚动 */
+@media (max-height: 700px) {
+  .auth-wrap {
+    padding: 16px 18px;
+  }
+  .auth-hero {
+    margin-bottom: 10px;
+  }
+  .auth-hero .logo {
+    font-size: 42px;
+  }
+  .auth-hero h1 {
+    font-size: 21px;
+    margin: 2px 0;
+  }
+  .auth-hero p {
+    font-size: 13px;
+  }
+  .auth-wrap > .disclaimer {
+    margin-top: 8px;
+    font-size: 11px;
+    padding-bottom: 0;
+  }
 }
 
 .empty {
@@ -2672,4 +2721,550 @@ textarea.input {
 }
 .lv-tag {
   margin-left: 6px;
+}
+/* 今日概况：养基等级徽章 + 晋级提示 */
+.lv-chip {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.7;
+  padding: 0 9px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  box-shadow: inset 0 0 0 1px rgba(76, 175, 80, 0.28);
+  white-space: nowrap;
+}
+.lv-hint {
+  font-size: 11.5px;
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+/* 自选页底部的「未入场」提示条：与卡片留出间距，并给悬浮「领养」按钮腾位置 */
+.yard-gate.gate-bottom {
+  margin: 12px 0 76px;
+}
+
+/* ---------- 天气条：不再留大片空白 + 会呼吸的光斑 ---------- */
+.weather-bar {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  color: #fff;
+  /* 浅色底上的白字必须带投影，否则小字糊成一片 */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  animation: wb-in 0.45s ease-out both;
+}
+/* 两团柔和光斑缓慢漂浮 + 一道高光周期扫过，填补空白但不抢文字 */
+.weather-bar::before {
+  content: '';
+  position: absolute;
+  inset: -45% -12%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(closest-side, rgba(255, 255, 255, 0.32), transparent 72%) 10% 16% / 52% 92% no-repeat,
+    radial-gradient(closest-side, rgba(255, 255, 255, 0.22), transparent 72%) 90% 94% / 46% 82% no-repeat;
+  animation: wb-drift 22s ease-in-out infinite;
+}
+.weather-bar::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  bottom: -60%;
+  left: -45%;
+  width: 36%;
+  z-index: -1;
+  pointer-events: none;
+  will-change: transform;
+  transform: skewX(-14deg);
+  background: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.26) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: wb-sheen 9s ease-in-out infinite;
+}
+@keyframes wb-drift {
+  0%,
+  100% {
+    transform: translate3d(-2%, 0, 0) scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate3d(3%, -2%, 0) scale(1.06);
+    opacity: 0.6;
+  }
+}
+@keyframes wb-sheen {
+  0% {
+    transform: skewX(-14deg) translate3d(0, 0, 0);
+  }
+  55%,
+  100% {
+    transform: skewX(-14deg) translate3d(480%, 0, 0);
+  }
+}
+@keyframes wb-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* 多云：左浅右深，正好把最需要读的「今日总盈亏」放在最深的一段上 */
+.weather-bar.cloudy {
+  background: linear-gradient(135deg, #8ba0b3 0%, #7b8fa3 52%, #5e7287 100%);
+}
+/* 其余天气同样提高对比：白字压在深色一段上，小字才读得清 */
+.weather-bar.sunny {
+  background: linear-gradient(135deg, #efa23c 0%, #dd8829 55%, #c3721c 100%);
+}
+.weather-bar.overcast {
+  background: linear-gradient(135deg, #87979f 0%, #6e7f89 55%, #55656f 100%);
+}
+.weather-bar.rain {
+  background: linear-gradient(135deg, #5b6cb8 0%, #4a5aa5 55%, #3b4890 100%);
+}
+.weather-bar.storm {
+  background: linear-gradient(135deg, #4b5563 0%, #39434f 55%, #2a323c 100%);
+}
+.weather-bar .w-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 46%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.weather-bar .w-num {
+  line-height: 1.15;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+}
+.weather-bar .w-pnl {
+  flex: 0 0 auto;
+  text-align: right;
+  padding-left: 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.24);
+}
+.weather-bar .w-main {
+  white-space: nowrap;
+}
+.weather-bar .w-pnl-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.weather-bar .w-time {
+  font-size: 11px;
+  opacity: 0.85;
+}
+/* 一句闲话：贴在天气名下方（窄屏隐藏），不再飘在中间 */
+.weather-bar .w-tip {
+  font-size: 12.5px;
+  letter-spacing: 0.3px;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 大盘指数 + 鸡舍涨跌家数：靠右与盈亏成组，窄屏换到第二行 */
+.weather-bar .w-meta {
+  flex: 0 1 auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.weather-bar .w-sep {
+  opacity: 0.45;
+}
+.weather-bar .idx-btn {
+  white-space: nowrap;
+  max-width: 100%;
+  /* 深色半透明底 + 白字，浅色天气下也不会糊 */
+  background: rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.weather-bar .idx-btn:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+/* 涨跌家数做成一枚小胶囊，与指数标签成对 */
+.weather-bar .w-sum {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.16);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .weather-bar,
+  .weather-bar::before,
+  .weather-bar::after {
+    animation: none;
+  }
+}
+
+/* 鸡舍标题下的工具行（类型 / 排序） */
+.yard-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: -2px 0 10px;
+}
+.yard-tools .yard-sort {
+  margin-right: 0;
+}
+
+/* 卡片副标题（代码 · 分类）单行省略，避免溢出被裁一半 */
+.chicken-card .sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 平板 / 窄桌面：收起闲话，指数与涨跌家数换到第二行，第一行只留天气 + 盈亏 */
+@media (max-width: 760px) {
+  .weather-bar .w-tip {
+    display: none;
+  }
+  .weather-bar .w-pnl {
+    order: 2;
+    margin-left: auto;
+  }
+  .weather-bar .w-meta {
+    order: 3;
+    flex: 1 0 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .weather-bar {
+    padding: 13px 15px;
+    gap: 8px 12px;
+  }
+  .weather-bar .w-num {
+    font-size: 21px;
+  }
+  .weather-bar .w-icon {
+    font-size: 26px;
+  }
+  .weather-bar .w-pnl {
+    padding-left: 12px;
+  }
+  /* 悬浮「领养 / 新增」按钮上移，别压住底部 Tab */
+  .fab {
+    bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+}
+
+/* 超窄屏（≤380px，如 iPhone SE）：盈亏信息独占一行，避免天气文字被挤成竖排 */
+@media (max-width: 380px) {
+  .weather-bar .w-pnl {
+    flex: 1 0 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+  .weather-bar .w-pnl-top {
+    justify-content: flex-start;
+  }
+}
+
+/* ---------- 自选页工具行：手机上排两行，选择框等宽 ------------------ */
+.list-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lt-row .input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.lt-row .btn {
+  flex: 0 0 auto;
+}
+@media (min-width: 640px) {
+  .list-tools {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .lt-row {
+    flex: 1 1 auto;
+  }
+}
+
+/* 卡片右上角的事件标签（[羽毛] / [蛋] 等文字）：做成小胶囊，贴边不裁字 */
+.chicken-card .badge-state {
+  max-width: 58%;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 鸡舍卡片背景：按收益体型换氛围（亏 → 阴雨，赚 → 阳光/金光/彩带） ---------- */
+/* 选择器带上 [class*=bg-]，确保压过「下雨天气」的旧底色，收益氛围永远优先 */
+.chicken-card .yard-bg[class*='bg-'] {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(180deg, var(--bg-a, #eaf7ec) 0%, var(--bg-b, #d5ebd7) 100%);
+}
+.chicken-card .yard-bg > svg {
+  position: relative;
+  z-index: 3;
+}
+/* 光晕（太阳 / 天光）：呼吸式缩放，让静态背景有生命感 */
+.chicken-card .yard-bg::before {
+  content: '';
+  position: absolute;
+  top: -36%;
+  right: -12%;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, var(--glow, rgba(255, 255, 255, 0.78)) 0%, rgba(255, 255, 255, 0) 68%);
+  animation: yb-glow 8s ease-in-out infinite;
+}
+/* 远处的小土坡，给鸡一个落脚的“地面” */
+.chicken-card .yard-bg::after {
+  content: '';
+  position: absolute;
+  left: -14%;
+  right: -14%;
+  bottom: -18px;
+  height: 44px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 50% 50% 0 0;
+  background: var(--ground, rgba(255, 255, 255, 0.46));
+}
+@keyframes yb-glow {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
+}
+
+/* 七档体型 ↔ 七种氛围 */
+.chicken-card .yard-bg.bg-cold {
+  --bg-a: #e4ebf2;
+  --bg-b: #bccbd9;
+  --glow: rgba(210, 228, 244, 0.9);
+  --ground: rgba(255, 255, 255, 0.36);
+  --fx: rgba(116, 145, 174, 0.85);
+}
+.chicken-card .yard-bg.bg-drizzle {
+  --bg-a: #e8eef1;
+  --bg-b: #c9d7df;
+  --glow: rgba(224, 236, 244, 0.8);
+  --ground: rgba(255, 255, 255, 0.42);
+  --fx: rgba(126, 152, 180, 0.7);
+}
+.chicken-card .yard-bg.bg-breeze {
+  --bg-a: #eff5f3;
+  --bg-b: #dae7e2;
+  --glow: rgba(255, 255, 255, 0.85);
+  --ground: rgba(255, 255, 255, 0.5);
+}
+.chicken-card .yard-bg.bg-grass {
+  --bg-a: #eaf7ec;
+  --bg-b: #d5ebd7;
+  --glow: rgba(255, 255, 255, 0.8);
+  --ground: rgba(255, 255, 255, 0.5);
+}
+.chicken-card .yard-bg.bg-sunny {
+  --bg-a: #f7fce6;
+  --bg-b: #fbedc0;
+  --glow: rgba(255, 240, 160, 0.98);
+  --ground: rgba(255, 255, 255, 0.5);
+  --fx: #ffc93c;
+}
+.chicken-card .yard-bg.bg-golden {
+  --bg-a: #fff8de;
+  --bg-b: #ffe2a0;
+  --glow: rgba(255, 224, 130, 1);
+  --ground: rgba(255, 255, 255, 0.46);
+  --fx: #ffab00;
+}
+.chicken-card .yard-bg.bg-party {
+  --bg-a: #fff2d3;
+  --bg-b: #ffd39a;
+  --glow: rgba(255, 210, 140, 1);
+  --ground: rgba(255, 255, 255, 0.42);
+}
+
+/* 粒子层：雨 / 上升光点 / 彩色纸带 */
+.chicken-card .yard-bg .bg-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+.chicken-card .bg-fx::before,
+.chicken-card .bg-fx::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+/* 雨：细线斜落 */
+.chicken-card .bg-fx.fx-rain::before,
+.chicken-card .bg-fx.fx-rain::after {
+  top: -18px;
+  left: 10%;
+  width: 1.5px;
+  height: 13px;
+  border-radius: 1px;
+  background: var(--fx, rgba(126, 152, 180, 0.7));
+  box-shadow:
+    22px 12px 0 0 var(--fx, rgba(126, 152, 180, 0.7)),
+    44px -4px 0 0 var(--fx, rgba(126, 152, 180, 0.7)),
+    66px 16px 0 0 var(--fx, rgba(126, 152, 180, 0.7)),
+    88px 4px 0 0 var(--fx, rgba(126, 152, 180, 0.7)),
+    110px 20px 0 0 var(--fx, rgba(126, 152, 180, 0.7));
+  animation: yb-rain 2.6s linear infinite;
+}
+.chicken-card .bg-fx.fx-rain::after {
+  top: -44px;
+  left: 34%;
+  opacity: 0.75;
+  animation-duration: 3.5s;
+  animation-delay: -1.3s;
+}
+@keyframes yb-rain {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(150px);
+  }
+}
+/* 光点：向上飘升，赚得越多越密（由光影颜色区分） */
+.chicken-card .bg-fx.fx-spark::before,
+.chicken-card .bg-fx.fx-spark::after {
+  bottom: 4px;
+  left: 14%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--fx, #ffc93c);
+  box-shadow:
+    20px 8px 0 -1px var(--fx, #ffc93c),
+    44px -6px 0 0 var(--fx, #ffc93c),
+    68px 10px 0 -1px var(--fx, #ffc93c),
+    92px 0 0 0 var(--fx, #ffc93c),
+    114px 14px 0 -1px var(--fx, #ffc93c);
+  opacity: 0;
+  animation: yb-rise 5.6s ease-in-out infinite;
+}
+.chicken-card .bg-fx.fx-spark::after {
+  left: 26%;
+  bottom: 10px;
+  transform: scale(0.7);
+  animation-duration: 7.2s;
+  animation-delay: -2.4s;
+}
+@keyframes yb-rise {
+  0% {
+    transform: translateY(6px) scale(0.6);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-72px) scale(1.05);
+    opacity: 0;
+  }
+}
+/* 彩带：赚翻了的庆祝气氛 */
+.chicken-card .bg-fx.fx-confetti::before {
+  top: -12px;
+  left: 8%;
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: #ff8a65;
+  box-shadow:
+    24px 0 0 0 #ffd54f,
+    48px 8px 0 0 #4dd0e1,
+    72px -4px 0 0 #ba68c8,
+    96px 10px 0 0 #81c784,
+    118px 2px 0 0 #ff8a65;
+  animation: yb-confetti 4.4s linear infinite;
+}
+.chicken-card .bg-fx.fx-confetti::after {
+  top: -22px;
+  left: 30%;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: #ffd54f;
+  box-shadow:
+    20px 6px 0 0 #ba68c8,
+    44px -6px 0 0 #4dd0e1,
+    68px 12px 0 0 #ff8a65,
+    92px 0 0 0 #81c784;
+  animation: yb-confetti 5.8s linear infinite;
+  animation-delay: -2.1s;
+}
+@keyframes yb-confetti {
+  0% {
+    transform: translateY(-10px) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(118px) rotate(200deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chicken-card .yard-bg::before,
+  .chicken-card .bg-fx::before,
+  .chicken-card .bg-fx::after {
+    animation: none;
+  }
+  .chicken-card .bg-fx.fx-spark::before,
+  .chicken-card .bg-fx.fx-spark::after {
+    opacity: 0.9;
+  }
 }

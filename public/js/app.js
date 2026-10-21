@@ -171,11 +171,13 @@ async function route() {
   stopLive();
 
   if (!state.user) {
+    app.classList.add('auth-mode');
     app.innerHTML = authHtml();
     bindAuth(app);
     return;
   }
 
+  app.classList.remove('auth-mode');
   app.innerHTML = shellHtml(navKey(r.name));
   bindShell(app);
   const page = document.getElementById('page');

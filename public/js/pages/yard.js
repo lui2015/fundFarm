@@ -1,5 +1,5 @@
 import { Api } from '../api.js';
-import { chickenSVG, eventEmoji } from '../chicken.js';
+import { chickenSVG, eventEmoji, yardBgClass, yardBgFx } from '../chicken.js';
 import { esc, pct, pctClass, fmtAmount, money, fmtTime, toast, modal } from '../util.js';
 import { getState } from '../app.js';
 import { feedModal, patModal } from './care.js';
@@ -19,6 +19,55 @@ let sortKey = (() => {
     return 'default';
   }
 })();
+
+/** 鸡舍类型筛选：全部 / 股票型 / 指数型 …（只列出鸡舍里真实存在的类型） */
+const TYPE_LABELS = [
+  ['equity', '股票型'],
+  ['index', '指数型'],
+  ['hybrid', '混合型'],
+  ['bond', '债券型'],
+  ['money', '货币型'],
+  ['qdii', 'QDII'],
+  ['fof', 'FOF'],
+  ['other', '其他'],
+];
+let typeKey = (() => {
+  try {
+    const v = localStorage.getItem('ff.yardType') || '';
+    return TYPE_LABELS.some(([k]) => k === v) ? v : '';
+  } catch (err) {
+    return '';
+  }
+})();
+
+/** 当前鸡舍里各类型的只数（用于下拉里的「指数型 3」） */
+function typeOptions() {
+  const items = (data && data.items) || [];
+  const counts = {};
+  items.forEach((it) => {
+    const k = it.type || 'other';
+    counts[k] = (counts[k] || 0) + 1;
+  });
+  return TYPE_LABELS.filter(([k]) => counts[k]).map(([k, label]) => [k, `${label} ${counts[k]}`]);
+}
+
+/**
+ * 类型筛选只切换卡片的 display，不重渲染、不重新请求，
+ * 排序结果与卡片上的点击 / 喂食 / 抚摸事件都不受影响。
+ */
+function applyTypeFilter(r) {
+  const items = (data && data.items) || [];
+  const rec = new Map(items.map((it) => [it.fundCode, it.type || 'other']));
+  let shown = 0;
+  r.querySelectorAll('.chicken-card[data-code]').forEach((el) => {
+    const t = rec.get(el.getAttribute('data-code')) || 'other';
+    const ok = !typeKey || t === typeKey;
+    el.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  });
+  const cnt = r.querySelector('[data-yard-count]');
+  if (cnt) cnt.textContent = typeKey ? `共 ${shown} / ${items.length} 只` : `共 ${items.length} 只`;
+}
 
 /**
  * 排序只重排已有卡片节点（appendChild），不重新渲染、不重新请求，
@@ -46,6 +95,54 @@ function resortCards(r) {
     .forEach((el) => grid.appendChild(el));
 }
 
+/** 鸡舍卡片上的「调整持仓」：直接改成本价 / 份额 / 昵称 / 建仓日 */
+function positionModal(code, onSaved) {
+  const it = (data && data.items ? data.items : []).find((x) => x.fundCode === code);
+  if (!it) return;
+  modal(
+    `调整持仓 · ${it.nickname || code}`,
+    () => `
+      <div class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">
+        改完成本价与份额后，盈亏、仓位、体型和各页统计会立即按新数据重算；
+        <b>成本价或份额留空 = 退出鸡舍</b>，回到自选里观察。
+      </div>
+      <div class="field"><label>昵称</label><input class="input" id="yp-nick" value="${esc(it.nickname || '')}"></div>
+      <div class="grid-2">
+        <div class="field"><label>成本价</label><input class="input" id="yp-cost" type="number" step="0.0001" inputmode="decimal" value="${
+          it.costPrice ?? ''
+        }"></div>
+        <div class="field"><label>份额</label><input class="input" id="yp-shares" type="number" step="0.01" inputmode="decimal" value="${
+          it.shares ?? ''
+        }"></div>
+      </div>
+      <div class="field"><label>首次买入日期</label><input class="input" id="yp-date" type="date" value="${esc(
+        it.firstBuyDate || ''
+      )}"></div>
+      <div class="modal-actions"><button class="btn ghost" data-no>取消</button><button class="btn" data-ok>保存</button></div>`,
+    (body, close) => {
+      body.querySelector('[data-no]').onclick = close;
+      body.querySelector('[data-ok]').onclick = async () => {
+        const okBtn = body.querySelector('[data-ok]');
+        okBtn.disabled = true;
+        try {
+          await Api.updateFund(code, {
+            nickname: body.querySelector('#yp-nick').value,
+            costPrice: body.querySelector('#yp-cost').value,
+            shares: body.querySelector('#yp-shares').value,
+            firstBuyDate: body.querySelector('#yp-date').value || null,
+          });
+          close();
+          toast('持仓已更新');
+          if (onSaved) await onSaved();
+        } catch (e) {
+          okBtn.disabled = false;
+          toast('保存失败：' + (e.message || '请稍后重试'));
+        }
+      };
+    }
+  );
+}
+
 const GI_FLAG = { A股: '🇨🇳', 港股: '🇭🇰', 亚太: '🌏', 美股: '🇺🇸', 欧洲: '🇪🇺', 其他: '🌐' };
 let giCache = null;
 
@@ -57,43 +154,63 @@ async function rerender() {
 
 export async function render() {
   const s = getState();
-  data = await Api.yard();
+  // 等级与「我的」页同源（/me/level 按本地净值算），避免两处口径不一致
+  const [yardData, lv] = await Promise.all([Api.yard(), Api.level().catch(() => null)]);
+  data = yardData;
+  const lvl = lv && lv.level ? lv.level : null;
   const w = data.weather || {};
   const idx = w.index;
   const sum = data.summary || {};
   const hasHolding = sum.marketValue !== null && sum.cost !== null;
 
+  // 天气条里的一句闲话：填补右侧空白，也让首屏更有情绪
+  const W_TIPS = {
+    sunny: '阳光正好，鸡在院子里撒欢',
+    cloudy: '云层有点厚，正适合躺着看鸡',
+    overcast: '天有点阴，顺手给自己泡杯茶',
+    rain: '下雨了，鸡都躲进窝里，别慌',
+    storm: '雷雨天，账户和心情都先放一边',
+  };
+  const wTip = W_TIPS[w.key] || W_TIPS.cloudy;
+
   const weatherCard = `
     <div class="weather-bar ${esc(w.key || 'cloudy')}">
       ${weatherArt(w.key)}
-      <div style="flex:1">
+      <div class="w-label">
         <div class="w-num">${esc(w.label || '多云')}</div>
-        <div class="w-main">
-          <button class="idx-btn" data-act="global-indices" title="查看全球大盘指数">
-            ${
-              idx
-                ? `<span data-live-index>${esc(idx.name)} <span class="${pctClass(idx.pct)}">${pct(idx.pct)}</span></span>`
-                : '<span>大盘数据暂不可用</span>'
-            }
-            <span class="idx-more">🌍 全球</span>
-          </button>
-          · 鸡舍今日<span data-live-summary="updown">${sum.total ? ` ${sum.up} 涨 ${sum.down} 跌` : '空空如也'}</span>
-        </div>
+        <div class="w-tip">${esc(wTip)}</div>
       </div>
-      <div style="text-align:right">
-        <div class="w-main">
-          今日总盈亏
-          <span class="live-tag" data-live-state>实时</span>
-          <button class="live-refresh" data-live-refresh title="立即刷新">↻</button>
-        </div>
+      <div class="w-meta">
+        <button class="idx-btn" data-act="global-indices" title="查看全球大盘指数">
+          ${
+            idx
+              ? `<span data-live-index>${esc(idx.name)} <span class="${pctClass(idx.pct)}">${pct(idx.pct)}</span></span>`
+              : '<span>大盘数据暂不可用</span>'
+          }
+          <span class="idx-more">🌍 全球</span>
+        </button>
+        <span class="w-sep">·</span>
+        <span class="w-sum">鸡舍今日<span data-live-summary="updown">${
+          sum.total ? ` ${sum.up} 涨 ${sum.down} 跌` : '空空如也'
+        }</span></span>
+      </div>
+      <div class="w-pnl">
+        <div class="w-main w-pnl-top">今日总盈亏 <span class="live-tag" data-live-state>实时</span>
+          <button class="live-refresh" data-live-refresh title="立即刷新">↻</button></div>
         <div class="w-num ${pctClass(sum.todayPct)}" data-live-summary="todayPct">${sum.todayPct === null ? '--' : pct(sum.todayPct)}</div>
-        <div class="w-main" style="font-size:11px" data-live-time>更新于 --:--:--</div>
+        <div class="w-main w-time" data-live-time>更新于 --:--:--</div>
       </div>
     </div>`;
 
+  const levelChip = lvl
+    ? `<span class="lv-chip" title="养基等级 Lv.${lvl.level}/${lvl.total}：${
+        lvl.next ? `距「${esc(lvl.next.name)}」还差 ${lvl.next.need.toFixed(1)} 个百分点` : '已是最高等级'
+      }">${lvl.emoji} ${esc(lvl.name)}</span>`
+    : '';
+
   const summaryCard = `
     <div class="card">
-      <div class="card-title">今日概况<span class="spacer"></span>
+      <div class="card-title">今日概况<span class="spacer"></span>${levelChip}
         <span class="muted" style="font-weight:400;font-size:12px">${data.date}</span></div>
       <div class="grid-3">
         <div class="stat"><div class="v ${pctClass(sum.todayPct)}" data-live-summary="todayPct">${sum.todayPct === null ? '--' : pct(sum.todayPct)}</div><div class="k">今日估算</div></div>
@@ -105,7 +222,14 @@ export async function render() {
           ? `<div class="bar-row"><span>收益率</span><span class="bar"><span style="width:${Math.min(
               Math.abs(sum.profitRate || 0),
               100
-            )}%;background:${(sum.profitRate || 0) >= 0 ? 'var(--up)' : 'var(--down)'}"></span></span><b>${pct(sum.profitRate, 1)}</b></div>`
+            )}%;background:${(sum.profitRate || 0) >= 0 ? 'var(--up)' : 'var(--down)'}"></span></span><b>${pct(sum.profitRate, 1)}</b></div>
+            ${
+              lvl
+                ? `<div class="muted lv-hint">养基等级 Lv.${lvl.level} · ${lvl.emoji} ${esc(lvl.name)}${
+                    lvl.next ? `，距「${esc(lvl.next.name)}」还差 ${lvl.next.need.toFixed(1)} 个百分点` : '（已满级）'
+                  }</div>`
+                : ''
+            }`
           : `<div class="muted" style="margin-top:8px;font-size:13px">填写成本价与份额后，这里会显示你的真实盈亏</div>`
       }
     </div>`;
@@ -128,7 +252,7 @@ export async function render() {
                     <small>${esc(t.desc)}</small>
                   </span>
                   <span class="todo-right">
-                    ${t.done ? '<span class="tag">已完成</span>' : `<span class="tag">+${t.reward} 饲料</span>`}
+                    ${t.done ? '<span class="tag">已完成</span>' : '<span class="tag">待完成</span>'}
                     ${!t.done && t.progress > 0 ? `<small>${t.progress}/${t.target}</small>` : ''}
                   </span>
                 </button>`
@@ -139,7 +263,7 @@ export async function render() {
       ${
         data.tasks.length
           ? `<div class="muted" style="font-size:12px;margin-top:8px;line-height:1.5">
-              点任意一条直接去做；喂食 / 安抚必须附一份报告或一条心得，签到在「我的」。
+              点任意一条直接去做；喂食 / 安抚必须附一份报告或一条心得，上传报告（+20）与写心得（+8）会涨饲料。
             </div>`
           : ''
       }
@@ -167,9 +291,12 @@ export async function render() {
           ? Math.min(100, (it.marketValue / totalMV) * 100)
           : null;
       return `<div class="chicken-card ${c.sick ? 'rain' : ''}" data-code="${esc(it.fundCode)}">
-        <span class="badge-lv">Lv.${c.level || 1} ${esc(c.levelName || '雏鸡')}</span>
         <span class="badge-state">${c.sick ? '🌧️' : c.hungry ? '🍚' : ev ? eventEmoji(ev.type) : ''}</span>
-        <div class="yard-bg">${chickenSVG(c, { size: 96, event: ev && ev.type, showHungry: true })}</div>
+        <div class="yard-bg ${yardBgClass(c && c.build)}">${yardBgFx(c && c.build)}${chickenSVG(c, {
+          size: 96,
+          event: ev && ev.type,
+          showHungry: true,
+        })}</div>
         <div class="name" title="${esc(it.nickname)}">${esc(it.nickname)}</div>
         <div class="sub" title="${esc(c.breedName || '')}${c.look && c.look.name ? '·' + esc(c.look.name) : ''}">${esc(it.fundCode)} · ${esc(it.category || c.breedName || '')}</div>
         <div class="pct ${pctClass(it.todayPct)}" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
@@ -184,15 +311,13 @@ export async function render() {
           it.marketValue,
           s.settings,
           0
-        )} · 占鸡舍 ${weight === null ? '--' : weight.toFixed(1) + '%'}（成长值 ${c.growth || 0}）">
+        )} · 占鸡舍 ${weight === null ? '--' : weight.toFixed(1) + '%'}">
           <span>仓位</span>
           <span class="bar"><span style="width:${weight === null ? 0 : weight.toFixed(1)}%"></span></span>
           <b>${weight === null ? '--' : weight.toFixed(1) + '%'}</b>
         </div>
         <div class="chicken-actions">
-          <button class="btn ghost small" data-act="feed" data-id="${esc(c.id)}" ${
-        c.canFeed ? '' : 'disabled'
-      } title="喂食：需附一份报告或一条 ≥20 字心得">🌾</button>
+          <button class="btn ghost small" data-act="edit-pos" data-code="${esc(it.fundCode)}" title="调整持仓：成本价 / 份额 / 昵称 / 建仓日" aria-label="调整持仓">🌾</button>
           <button class="btn ghost small" data-act="pat" data-id="${esc(c.id)}" ${
         c.canPat ? '' : 'disabled'
       } title="抚摸：需写一句 ≥10 字心态笔记">🤲</button>
@@ -208,24 +333,47 @@ export async function render() {
       </div>`
     : '';
 
+  const typeOpts = typeOptions();
+  if (typeKey && !typeOpts.some(([k]) => k === typeKey)) typeKey = '';
+
   const chickenCard = `
     <div class="card">
       <div class="card-title">我的鸡舍<span class="spacer"></span>
-        <label class="yard-sort" title="按仓位 / 收益率 / 今日涨跌排序">
-          <span class="muted">排序</span>
-          <select data-yard-sort>
-            ${[
-              ['default', '默认'],
-              ['weight', '仓位'],
-              ['profitRate', '收益率'],
-              ['todayPct', '今日涨跌'],
-              ['name', '名称'],
-            ]
-              .map(([k, label]) => `<option value="${k}" ${sortKey === k ? 'selected' : ''}>${label}</option>`)
-              .join('')}
-          </select>
-        </label>
-        <span class="muted" style="font-weight:400;font-size:12px">共 ${data.items.length} 只</span></div>
+        <span class="muted" data-yard-count style="font-weight:400;font-size:12px">共 ${data.items.length} 只</span>
+      </div>
+      ${
+        data.items.length
+          ? `<div class="yard-tools">
+              ${
+                typeOpts.length > 1
+                  ? `<label class="yard-sort" title="只看某个基金类型">
+                      <span class="muted">类型</span>
+                      <select data-yard-type>
+                        <option value="">全部</option>
+                        ${typeOpts
+                          .map(([k, label]) => `<option value="${k}" ${typeKey === k ? 'selected' : ''}>${label}</option>`)
+                          .join('')}
+                      </select>
+                    </label>`
+                  : ''
+              }
+              <label class="yard-sort" title="按仓位 / 收益率 / 今日涨跌排序">
+                <span class="muted">排序</span>
+                <select data-yard-sort>
+                  ${[
+                    ['default', '默认'],
+                    ['weight', '仓位'],
+                    ['profitRate', '收益率'],
+                    ['todayPct', '今日涨跌'],
+                    ['name', '名称'],
+                  ]
+                    .map(([k, label]) => `<option value="${k}" ${sortKey === k ? 'selected' : ''}>${label}</option>`)
+                    .join('')}
+                </select>
+              </label>
+            </div>`
+          : ''
+      }
       ${
         data.items.length
           ? `<div class="chicken-grid">${chickenCards}</div>`
@@ -248,7 +396,6 @@ export async function render() {
                 (e) => `<div class="tl-item">
                   <div>${esc(e.name)} ${esc(e.text || '')}
                     <span class="${pctClass(e.pct)} num">${pct(e.pct)}</span></div>
-                  <div class="tl-time">成长值 +${e.growthDelta || 0}</div>
                 </div>`
               )
               .join('')}</div>`
@@ -304,6 +451,22 @@ export async function mount(r) {
     };
   });
 
+  /* 类型筛选：只切 display，与排序互不干扰 */
+  const typeSel = r.querySelector('[data-yard-type]');
+  if (typeSel) {
+    typeSel.value = typeKey;
+    typeSel.onchange = () => {
+      typeKey = typeSel.value;
+      try {
+        localStorage.setItem('ff.yardType', typeKey);
+      } catch (err) {
+        /* 隐私模式下忽略 */
+      }
+      applyTypeFilter(r);
+    };
+  }
+  if (typeKey) applyTypeFilter(r);
+
   /* 排序：只重排 DOM，事件与滚动位置都不受影响 */
   const sortSel = r.querySelector('[data-yard-sort]');
   if (sortSel) {
@@ -325,6 +488,13 @@ export async function mount(r) {
     if (getState().user && typeof out.feedLeft === 'number') getState().user.feed = out.feedLeft;
     await rerender();
   };
+
+  r.querySelectorAll('[data-act="edit-pos"]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      positionModal(b.getAttribute('data-code'), rerender);
+    };
+  });
 
   r.querySelectorAll('[data-act="feed"], [data-act="pat"]').forEach((b) => {
     b.onclick = (e) => {

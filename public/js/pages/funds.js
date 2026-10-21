@@ -1,5 +1,5 @@
 import { Api } from '../api.js';
-import { chickenSVG } from '../chicken.js';
+import { chickenSVG, yardBgClass, yardBgFx } from '../chicken.js';
 import { esc, pct, pctClass, fmtAmount, toast, modal, confirmBox } from '../util.js';
 import { attachAutocomplete } from '../autocomplete.js';
 import { getState } from '../app.js';
@@ -8,7 +8,7 @@ import { startLive } from '../live.js';
 
 let data = null;
 let groups = [];
-let view = { groupId: 'all', sort: 'adopted', filter: '', compact: false };
+let view = { groupId: 'all', sort: 'adopted', filter: '', type: '', compact: false };
 let root = null;
 
 async function load() {
@@ -16,6 +16,7 @@ async function load() {
   if (view.groupId !== 'all') qs.set('groupId', view.groupId);
   if (view.sort) qs.set('sort', view.sort);
   if (view.filter) qs.set('filter', view.filter);
+  if (view.type) qs.set('type', view.type);
   const [funds, gs] = await Promise.all([Api.funds(qs.toString()), Api.groups()]);
   data = funds;
   groups = gs.items || [];
@@ -52,17 +53,29 @@ export async function render() {
     `<button data-g="none" class="${view.groupId === 'none' ? 'active' : ''}">未分组</button>`,
   ].join('');
 
-  const filters = [
+  const FILTERS = [
     ['', '全部'],
-    ['up', '今日涨'],
-    ['down', '今日跌'],
-    ['profit', '盈利'],
-    ['loss', '亏损'],
+    ['in_yard', '已入场（在鸡舍）'],
+    ['watching', '未入场（只看）'],
+    ['up', '今日上涨'],
+    ['down', '今日下跌'],
+    ['profit', '持仓盈利'],
+    ['loss', '持仓亏损'],
     ['hungry', '饿了'],
-    ['watching', '未入场'],
-  ]
-    .map(([v, t]) => `<button data-f="${v}" class="${view.filter === v ? 'active' : ''}">${t}</button>`)
-    .join('');
+  ];
+
+  /** 基金类型（东财 FTYPE 大类，对应 funds.type） */
+  const TYPES = [
+    ['', '全部类型'],
+    ['equity', '股票型'],
+    ['index', '指数型'],
+    ['hybrid', '混合型'],
+    ['bond', '债券型'],
+    ['money', '货币型'],
+    ['qdii', 'QDII'],
+    ['fof', 'FOF'],
+    ['other', '其他'],
+  ];
 
   const rows = data.items
     .map((it) => {
@@ -84,9 +97,11 @@ export async function render() {
         </div>`;
       }
       return `<div class="chicken-card ${it.hasPosition ? '' : 'watching'}" data-code="${esc(it.fundCode)}">
-        <span class="badge-lv">Lv.${c.level || 1}</span>
         ${it.hasPosition ? (c.hungry ? '<span class="badge-state">🍚</span>' : '') : '<span class="badge-state">👀</span>'}
-        <div class="yard-bg">${chickenSVG(c, { size: 92, showHungry: !!it.hasPosition })}</div>
+        <div class="yard-bg ${yardBgClass(c && c.build)}">${yardBgFx(c && c.build)}${chickenSVG(c, {
+          size: 92,
+          showHungry: !!it.hasPosition,
+        })}</div>
         <div class="name" title="${esc(it.nickname)}">${esc(it.nickname)}</div>
         <div class="sub" title="${esc(c.breedName || '')}${c.look && c.look.name ? '·' + esc(c.look.name) : ''}">${esc(it.fundCode)} · ${esc(it.category || c.breedName || '')}</div>
         <div class="pct ${pctClass(it.todayPct)}" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
@@ -112,16 +127,26 @@ export async function render() {
       <div class="tabs" style="margin-bottom:8px">${tabs}
         <button data-act="addgroup" class="active" style="background:#fff;color:var(--green-dark)">+ 分组</button>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <div class="tabs" style="flex:1">${filters}</div>
-        <select class="input" id="fd-sort" style="width:auto">
-          <option value="adopted" ${view.sort === 'adopted' ? 'selected' : ''}>按领养时间</option>
-          <option value="pct" ${view.sort === 'pct' ? 'selected' : ''}>按今日涨跌</option>
-          <option value="profitRate" ${view.sort === 'profitRate' ? 'selected' : ''}>按收益率</option>
-          <option value="value" ${view.sort === 'value' ? 'selected' : ''}>按市值</option>
-          <option value="level" ${view.sort === 'level' ? 'selected' : ''}>按成长值</option>
-        </select>
-        <button class="btn ghost small" data-act="toggle-view">${view.compact ? '卡片' : '紧凑'}</button>
+      <div class="list-tools">
+        <div class="lt-row">
+          <select class="input" id="fd-filter" title="筛选条件">
+            ${FILTERS.map(
+              ([v, t]) => `<option value="${v}" ${view.filter === v ? 'selected' : ''}>${t}</option>`
+            ).join('')}
+          </select>
+          <select class="input" id="fd-type" title="基金类型">
+            ${TYPES.map(([v, t]) => `<option value="${v}" ${view.type === v ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div class="lt-row">
+          <select class="input" id="fd-sort" title="排序方式">
+            <option value="adopted" ${view.sort === 'adopted' ? 'selected' : ''}>按领养时间</option>
+            <option value="pct" ${view.sort === 'pct' ? 'selected' : ''}>按今日涨跌</option>
+            <option value="profitRate" ${view.sort === 'profitRate' ? 'selected' : ''}>按收益率</option>
+            <option value="value" ${view.sort === 'value' ? 'selected' : ''}>按市值</option>
+          </select>
+          <button class="btn ghost small" data-act="toggle-view">${view.compact ? '卡片' : '紧凑'}</button>
+        </div>
       </div>
     </div>
 
@@ -132,21 +157,24 @@ export async function render() {
         <span class="muted" style="font-weight:400;font-size:12px">${data.count} / ${data.maxAdoptions}</span></div>
       <div class="muted" style="font-size:12px;margin:-2px 0 8px" data-live-time>更新于 --:--:--</div>
       ${
-        data.watching
-          ? `<div class="yard-gate">
-              <span>🐣 有 <b>${data.watching}</b> 只基金还没设置持仓，只在自选里观察，<b>填好成本价与份额后才会进鸡舍</b>。</span>
-              <button class="btn ghost small" data-f="watching">只看未入场</button>
-            </div>`
-          : ''
-      }
-      ${
         data.items.length
           ? view.compact
             ? rows
             : `<div class="chicken-grid">${rows}</div>`
-          : `<div class="empty"><span class="big">🐣</span>这里还没有基金<br/>点击右下角「领养」添加一只</div>`
+          : view.filter || view.type || view.groupId !== 'all'
+            ? `<div class="empty"><span class="big">🔍</span>没有符合当前筛选条件的基金<br/>
+                 <button class="btn ghost small" data-act="clear-filter" style="margin-top:10px">清除筛选</button></div>`
+            : `<div class="empty"><span class="big">🐣</span>这里还没有基金<br/>点击右下角「领养」添加一只</div>`
       }
     </div>
+
+    ${
+      data.watching
+        ? `<div class="yard-gate gate-bottom">
+            <span>🐣 有 <b>${data.watching}</b> 只基金还没设置持仓，只在自选里观察，<b>填好成本价与份额后才会进鸡舍</b>。</span>
+          </div>`
+        : ''
+    }
 
     <button class="btn fab" data-act="adopt">＋ 领养基金</button>`;
 }
@@ -161,12 +189,18 @@ export async function mount(r) {
       rerender();
     };
   });
-  r.querySelectorAll('[data-f]').forEach((b) => {
-    b.onclick = () => {
-      view.filter = b.getAttribute('data-f');
+  const filterSel = r.querySelector('#fd-filter');
+  if (filterSel)
+    filterSel.onchange = () => {
+      view.filter = filterSel.value;
       rerender();
     };
-  });
+  const typeSel = r.querySelector('#fd-type');
+  if (typeSel)
+    typeSel.onchange = () => {
+      view.type = typeSel.value;
+      rerender();
+    };
   const sortSel = r.querySelector('#fd-sort');
   if (sortSel)
     sortSel.onchange = () => {
@@ -177,6 +211,14 @@ export async function mount(r) {
   if (tv)
     tv.onclick = () => {
       view.compact = !view.compact;
+      rerender();
+    };
+  const cf = r.querySelector('[data-act="clear-filter"]');
+  if (cf)
+    cf.onclick = () => {
+      view.filter = '';
+      view.type = '';
+      view.groupId = 'all';
       rerender();
     };
 

@@ -193,7 +193,7 @@ export function feedModal(target, onDone) {
           if (e.message === 'need_material') toast(`投资心得至少 ${e.payload?.minLen || minLen} 字`);
           else if (e.message === 'bad_report') toast('这份报告不存在或不属于你');
           else if (e.message === 'cooldown') toast(`它正在休息，${e.payload?.leftMin || ''} 分钟后再来`);
-          else if (e.message === 'no_feed') toast('饲料不够了，先去签到或做任务');
+          else if (e.message === 'no_feed') toast('饲料（经验）不足：上传报告或写心得都能涨');
           else toast('加餐失败：' + e.message);
         }
       };
@@ -297,7 +297,7 @@ export function noteModal(fundCode, onDone) {
         try {
           const out = await Api.addNote({ fund_code: fundCode || '', content: ta.value.trim() });
           close();
-          toast(out.rewarded ? `心得已保存，任务「${out.rewarded.name}」完成 +${out.rewarded.reward} 饲料` : '心得已保存');
+          toast(out.feedGain ? `心得已保存，+${out.feedGain} 饲料（经验）` : '心得已保存');
           if (onDone) onDone(out);
         } catch (e) {
           toast(e.message === 'note_too_short' ? `心得至少 ${minLen} 字` : '保存失败：' + e.message);

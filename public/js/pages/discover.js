@@ -138,14 +138,13 @@ function initTypeItem(item, type, closeOthers) {
 }
 
 export async function render() {
-  const [breeds, achs, tips, fundTypes] = await Promise.all([
-    Api.breeds(),
+  const [achs, tips, fundTypes] = await Promise.all([
     Api.achievements(),
     Api.tips(),
     Api.fundTypes().catch(() => ({ types: [] })),
   ]);
   const types = (fundTypes && fundTypes.types) || [];
-  data = { breeds, achs, tips, types };
+  data = { achs, tips, types };
 
   const typeRows = types
     .map((t) => {
@@ -224,19 +223,7 @@ export async function render() {
       <div class="card-title">💡 养基小贴士</div>
       <div class="timeline">${tipsHtml}</div>
     </div>
-
-    <div class="card">
-      <div class="card-title">📜 等级体系</div>
-      ${breeds.levels
-        .map(
-          (l) =>
-            `<div class="kv"><span class="k">Lv.${l.level} ${esc(l.name)}</span><span>成长值 ${l.need}</span></div>`
-        )
-        .join('')}
-      <div class="muted" style="font-size:12px;margin-top:8px">
-        成长值来自每日行情事件、互动、签到与任务。<b>等级只与陪伴时长和照料投入有关，与收益率无关。</b>
-      </div>
-    </div>`;
+  `;
 }
 
 export async function mount(r) {

@@ -400,7 +400,11 @@ export function uploadModal(defaultFundCode, onDone) {
         try {
           const out = await Api.createReport(form);
           close();
-          toast('上传成功' + (out.report.status === 'parsing' ? '，AI 正在解析' : ''));
+          toast(
+            `上传成功${out.feedGain ? ` +${out.feedGain} 饲料（经验）` : ''}${
+              out.report.status === 'parsing' ? '，AI 正在解析' : ''
+            }`
+          );
           if (out.newAchievements?.length) showAchievements(out.newAchievements);
           if (onDone) onDone(out.report);
         } catch (e) {

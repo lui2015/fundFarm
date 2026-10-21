@@ -90,7 +90,6 @@ export const Api = {
   delReport: (id) => request('/reports/' + id, { method: 'DELETE' }),
   reparse: (id) => request('/reports/' + id + '/reparse', { method: 'POST' }),
 
-  checkin: () => request('/me/checkin'),
   changePassword: (b) => request('/me/password', { method: 'POST', body: b }),
   adminOverview: () => request('/admin/overview'),
   settings: (patch) => request('/me/settings', { method: 'POST', body: patch }),

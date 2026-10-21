@@ -432,9 +432,7 @@ function interact(chickenId, action, userId, material = null) {
   const isReport = material && material.kind === 'report';
 
   if (action === 'feed') {
-    const user = db.prepare('SELECT feed FROM users WHERE id = ?').get(userId);
-    if (!user || user.feed < 1) return { error: 'no_feed' };
-    db.prepare('UPDATE users SET feed = feed - 1 WHERE id = ?').run(userId);
+    // 饲料是「经验值」，只增不减：喂食不再消耗饲料，只看有没有附投研素材
     c.satiety = clamp(c.satiety + (isReport ? 30 : 25), 0, 100);
     // 每日衰减健康 -2，靠「带材料喂食」+4 把健康养住（纯点击的打扫已下线）
     c.health = clamp(c.health + 4, 0, 100);

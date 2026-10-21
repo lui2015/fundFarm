@@ -78,16 +78,8 @@ function bump(userId, code, delta = 1) {
   const done = progress >= (t?.target || 1) ? 1 : 0;
   db.prepare('UPDATE user_tasks SET progress = ?, done = ? WHERE id = ?').run(progress, done, row.id);
   if (done && !row.rewarded) {
-    const reward = t?.reward || 2;
-    db.prepare('UPDATE users SET feed = feed + ? WHERE id = ?').run(reward, userId);
+    // 饲料（经验值）只由「上传报告 / 写心得」产生，任务完成不再发饲料
     db.prepare('UPDATE user_tasks SET rewarded = 1 WHERE id = ?').run(row.id);
-    db.prepare('INSERT INTO feed_ledger (id, user_id, delta, reason, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      gid('fl'),
-      userId,
-      reward,
-      '任务：' + (t?.name || code),
-      nowISO()
-    );
     db.prepare('INSERT INTO diary (id, user_id, adoption_id, date, type, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
       gid('dr'),
       userId,
@@ -97,7 +89,7 @@ function bump(userId, code, delta = 1) {
       `完成每日任务「${t?.name || code}」`,
       nowISO()
     );
-    return { code, name: t?.name, reward };
+    return { code, name: t?.name, reward: 0 };
   }
   return null;
 }

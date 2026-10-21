@@ -136,7 +136,7 @@ router.get('/tips', (req, res) => {
       '掉毛只是暂时的，鸡不会死，别因为一天的下跌就放归它。',
       '跌得最多的那只会排在鸡舍最前面，去摸摸它吧。',
       '上传一份季报，让 AI 帮你提炼要点，比刷净值有用。',
-      '连续签到可以攒饲料，饲料用来喂食提升亲密度。',
+      '饲料就是经验值：上传一份报告 +20，写一条心得 +8，攒着看自己养基的用心程度。',
     ],
   });
 });
@@ -250,15 +250,13 @@ router.get('/yard', auth.requireAuth, async (req, res) => {
 // 现在鸡舍只保留带真实动作的照料：喂食（附报告或心得）、安抚（写心态笔记）、加餐喂全场。
 
 router.post('/yard/feed-all', auth.requireAuth, (req, res) => {
-  const user = db.prepare('SELECT feed FROM users WHERE id = ?').get(req.user.id);
   const rows = db
     .prepare(
       `SELECT c.id FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
        WHERE a.user_id = ? AND a.released_at IS NULL AND a.cost_price > 0 AND a.shares > 0 AND c.satiety < 100`
     )
     .all(req.user.id);
-  if (!rows.length) return res.json({ ok: true, fed: 0, feedLeft: user.feed, text: '大家都不饿' });
-  if (!user || user.feed < 1) return res.status(400).json({ error: 'no_feed' });
+  if (!rows.length) return res.json({ ok: true, fed: 0, text: '大家都不饿' });
 
   // 一次加餐喂全场：同样必须附素材（一份报告或一条心得），但成长加成递减
   const mat = takeMaterial(req, { minLen: NOTE_MIN.feed, kind: 'feed', fundCode: '', adoptionId: null });
@@ -269,7 +267,6 @@ router.post('/yard/feed-all', auth.requireAuth, (req, res) => {
   let cooling = 0;
   let hungry = 0;
   for (const r of rows) {
-    if (user.feed <= fed) break;
     const out = chickenEngine.interact(r.id, 'feed', req.user.id, matAll);
     if (out.ok) {
       fed++;
@@ -285,7 +282,7 @@ router.post('/yard/feed-all', auth.requireAuth, (req, res) => {
     fed,
     cooling,
     hungry,
-    feedLeft: user.feed - fed,
+    feedLeft: (db.prepare('SELECT feed FROM users WHERE id = ?').get(req.user.id) || {}).feed,
     material: mat.label,
     text: fed ? `喂了 ${fed} 只鸡` : cooling ? '它们刚吃过，还在冷却中' : '大家都不饿',
   });
@@ -362,8 +359,10 @@ router.get('/funds', auth.requireAuth, async (req, res) => {
     const groupId = req.query.groupId;
     const sort = req.query.sort || 'adopted';
     const filter = req.query.filter;
+    const fundType = String(req.query.type || '').trim();
     let list = items;
     if (groupId && groupId !== 'all') list = list.filter((i) => i.groupId === groupId);
+    if (fundType && fundType !== 'all') list = list.filter((i) => i.type === fundType);
     if (groupId === 'none') list = list.filter((i) => !i.groupId);
     if (filter === 'profit') list = list.filter((i) => (i.profitRate ?? 0) > 0);
     if (filter === 'loss') list = list.filter((i) => (i.profitRate ?? 0) < 0);
@@ -526,14 +525,8 @@ router.post('/funds', auth.requireAuth, async (req, res) => {
       `INSERT INTO chickens (id, adoption_id, breed, growth, level, last_decay_at)
        VALUES (?, ?, ?, 10, 1, ?)`
     ).run(gid('chk'), adoptionId, breed, now);
-    db.prepare('UPDATE users SET last_adopt_at = ?, feed = feed + 10 WHERE id = ?').run(now, req.user.id);
-    db.prepare('INSERT INTO feed_ledger (id, user_id, delta, reason, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      gid('fl'),
-      req.user.id,
-      10,
-      '领养新鸡',
-      now
-    );
+    // 饲料=经验值：领养不再送饲料（只有上传报告 / 写心得会涨经验）
+    db.prepare('UPDATE users SET last_adopt_at = ? WHERE id = ?').run(now, req.user.id);
   })();
 
   diary(req.user.id, 'adopt', `领养了 ${nickname || info?.name || fundCode}`, adoptionId);
@@ -800,14 +793,22 @@ router.post('/notes', auth.requireAuth, (req, res) => {
   if (code && !CODE_RE.test(code)) return res.status(400).json({ error: 'bad_fund_code' });
   const adoption = code ? getAdoption(req.user.id, code) : null;
   const noteId = gid('nt');
+  // 写心得也是饲料来源，但每天最多计 5 条，避免复制粘贴刷经验
+  const todayNotes = db
+    .prepare('SELECT COUNT(*) AS n FROM notes WHERE user_id = ? AND substr(created_at, 1, 10) = ?')
+    .get(req.user.id, today()).n;
+  const feedGain = todayNotes < 5 ? FEED_REWARD.note : 0;
   db.prepare(
     'INSERT INTO notes (id, user_id, adoption_id, fund_code, kind, content, report_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(noteId, req.user.id, (adoption || {}).id || null, code || null, 'note', content.slice(0, 2000), null, nowISO());
+  const feed = feedGain ? addFeed(req.user.id, feedGain, `写心得${code ? '（' + code + '）' : ''}`) : null;
   const rewarded = tasks.bump(req.user.id, 'note_1', 1);
   diary(req.user.id, 'report', `写下了投资心得${code ? '（' + code + '）' : ''}`, (adoption || {}).id || null);
   res.status(201).json({
     ok: true,
     note: publicNote(db.prepare('SELECT * FROM notes WHERE id = ?').get(noteId)),
+    feed,
+    feedGain,
     rewarded,
   });
 });
@@ -831,11 +832,6 @@ router.post('/chickens/:id/interact', auth.requireAuth, (req, res) => {
     return res.status(code).json({ error: pre.error, leftMin: pre.leftMin });
   }
   const chicken = pre.chicken;
-
-  if (action === 'feed') {
-    const u = db.prepare('SELECT feed FROM users WHERE id = ?').get(req.user.id);
-    if (!u || u.feed < 1) return res.status(400).json({ error: 'no_feed' });
-  }
 
   // 喂食 / 安抚必须附一份投研素材：报告 或 心得
   const mat = takeMaterial(req, {
@@ -996,6 +992,25 @@ router.get('/funds/:code/reports', auth.requireAuth, (req, res) => {
   res.json({ items: rows.map(publicReport) });
 });
 
+/**
+ * 饲料 = 经验值：只有真实产出（上传报告 / 写心得）才增加，
+ * 签到 / 领养 / 任务不再白送，喂食也不消耗。
+ */
+const FEED_REWARD = { report: 20, note: 8 };
+function addFeed(userId, delta, reason) {
+  if (!delta) return null;
+  db.prepare('UPDATE users SET feed = feed + ? WHERE id = ?').run(delta, userId);
+  db.prepare('INSERT INTO feed_ledger (id, user_id, delta, reason, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    gid('fl'),
+    userId,
+    delta,
+    reason,
+    nowISO()
+  );
+  const row = db.prepare('SELECT feed FROM users WHERE id = ?').get(userId);
+  return row ? row.feed : null;
+}
+
 /** 创建报告（/funds/:code/reports 与 /reports 共用；fund_code 可为空表示暂不关联） */
 function createReportHandler(resolveFundCode) {
   return (req, res) => {
@@ -1063,10 +1078,12 @@ function createReportHandler(resolveFundCode) {
       tasks.bump(req.user.id, 'read_report', 1);
       // 待办「传一份研报」要求挂到具体持仓基金上
       if (fundCode) tasks.bump(req.user.id, 'report_1', 1);
+      // 上传报告是饲料（经验值）的主要来源
+      const feed = addFeed(req.user.id, FEED_REWARD.report, `上传报告《${title}》`);
       const achs = achEngine.check(req.user.id, {});
 
       const report = publicReport(db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId));
-      res.status(201).json({ ok: true, report, newAchievements: achs });
+      res.status(201).json({ ok: true, report, feed, feedGain: FEED_REWARD.report, newAchievements: achs });
 
       if (wantParse && text) {
         parseInBackground(reportId, text, req.user.id, fundCode, contentType);
@@ -1382,24 +1399,15 @@ router.get('/achievements', auth.requireAuth, (req, res) => {
   res.json({ items, unlocked: items.filter((i) => i.unlocked).length, total: items.length });
 });
 
+/**
+ * 每日签到已下线：饲料是「经验值」，不能靠每天点一下就白拿，
+ * 只保留上传报告 / 写心得两个真实产出渠道。
+ */
 router.get('/me/checkin', auth.requireAuth, (req, res) => {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  const t = today();
-  if (u.last_checkin === t) return res.json({ ok: false, error: 'already_checked', feed: u.feed, streak: u.checkin_streak });
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  const streak = u.last_checkin === yesterday ? u.checkin_streak + 1 : 1;
-  const bonus = streak % 7 === 0 ? 20 : 0;
-  const gain = 5 + bonus;
-  db.prepare('UPDATE users SET last_checkin = ?, checkin_streak = ?, feed = feed + ? WHERE id = ?').run(t, streak, gain, req.user.id);
-  db.prepare('INSERT INTO feed_ledger (id, user_id, delta, reason, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    gid('fl'),
-    req.user.id,
-    gain,
-    `签到（连续 ${streak} 天）`,
-    nowISO()
-  );
-  const achs = achEngine.check(req.user.id, { hour: new Date().getHours(), event: 'checkin' });
-  res.json({ ok: true, gain, bonus, streak, newAchievements: achs });
+  res.status(410).json({
+    error: 'checkin_removed',
+    message: '签到已下线，饲料改为靠上传报告（+20）或写心得（+8）获得',
+  });
 });
 
 router.post('/me/settings', auth.requireAuth, (req, res) => {

@@ -1,7 +1,6 @@
 import { Api } from '../api.js';
 import { esc, toast, modal, confirmBox, copyText, fmtDate, fmtAmount, pct, pctClass } from '../util.js';
 import { getState, setUser, refresh } from '../app.js';
-import { showAchievements } from './yard.js';
 
 let keys = [];
 let achievements = { items: [], unlocked: 0, total: 0 };
@@ -113,11 +112,14 @@ export async function render() {
         </div>
       </div>
       <div class="grid-3" style="margin-top:12px">
-        <div class="stat"><div class="v">${u.feed ?? 0}</div><div class="k">饲料</div></div>
-        <div class="stat"><div class="v">${u.checkinStreak ?? 0}</div><div class="k">连续签到</div></div>
+        <div class="stat"><div class="v">${u.feed ?? 0}</div><div class="k">饲料（经验）</div></div>
+        <div class="stat"><div class="v">${achievements.unlocked ?? 0}</div><div class="k">已解锁成就</div></div>
         <div class="stat"><div class="v">${u.totalInteract ?? 0}</div><div class="k">累计互动</div></div>
       </div>
-      <button class="btn block" data-act="checkin" style="margin-top:12px">🌾 每日签到（+5 饲料）</button>
+      <div class="muted" style="font-size:12px;line-height:1.6;margin-top:10px">
+        饲料就是经验值，只能靠真实产出获得：<b>上传报告 +20</b>、<b>写心得 +8</b>。
+        签到已下线，喂食也不再消耗饲料。
+      </div>
     </div>
 
     ${levelCard}
@@ -214,22 +216,6 @@ function toggle(key, title, desc, value) {
 }
 
 export async function mount(r) {
-  r.querySelector('[data-act="checkin"]').onclick = async () => {
-    try {
-      const out = await Api.checkin();
-      const u = getState().user;
-      if (u) {
-        u.feed += out.gain || 0;
-        u.checkinStreak = out.streak;
-      }
-      toast(`签到成功，获得 ${out.gain} 饲料（连续 ${out.streak} 天）`);
-      if (out.newAchievements?.length) showAchievements(out.newAchievements);
-      refresh();
-    } catch (e) {
-      toast(e.message === 'already_checked' ? '今天已经签到过了，明天再来' : '签到失败');
-    }
-  };
-
   const achWall = r.querySelector('[data-act="ach-wall"]');
   if (achWall)
     achWall.onclick = () => {
