@@ -73,7 +73,11 @@ export const Api = {
   diary: (date) => request('/diary?date=' + date),
   diaryRange: () => request('/diary/range?days=30'),
   achievements: () => request('/achievements'),
+  // 养基等级（按持仓累计收益率定级）
+  level: () => request('/me/level'),
   breeds: () => request('/breeds'),
+  // 基金类型图鉴（品种 ↔ 真实基金类型 + 数量）
+  fundTypes: () => request('/fund-types'),
   tips: () => request('/tips'),
   aiPrompt: (code, format) =>
     request('/ai-prompt?code=' + encodeURIComponent(code || '') + (format ? '&format=' + format : '')),

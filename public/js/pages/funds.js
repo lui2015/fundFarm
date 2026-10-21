@@ -33,6 +33,17 @@ export async function render() {
   const s = getState();
   if (!data) await load();
 
+  /** 持仓盈亏：金额 + 收益率，如 -15,833.00（-32.9%） */
+  const profitText = (it) => {
+    if (it.profit === null || it.profit === undefined) return '--';
+    const amount = fmtAmount(it.profit, s.settings, 2);
+    if (amount === '***') return amount;
+    const sign = it.profit > 0 ? '+' : '';
+    const rate =
+      it.profitRate === null || it.profitRate === undefined ? '' : `（${pct(it.profitRate, 1)}）`;
+    return `${sign}${amount}${rate}`;
+  };
+
   const tabs = [
     `<button data-g="all" class="${view.groupId === 'all' ? 'active' : ''}">全部 ${data.total}</button>`,
     ...groups.map(
@@ -59,7 +70,7 @@ export async function render() {
       if (view.compact) {
         return `<div class="list-row" data-code="${esc(it.fundCode)}">
           <div class="lr-main">
-            <div class="lr-name">${esc(it.nickname)} <span class="muted" style="font-weight:400">${esc(it.fundCode)}</span>${
+            <div class="lr-name" title="${esc(it.nickname)}">${esc(it.nickname)} <span class="muted" style="font-weight:400">${esc(it.fundCode)}</span>${
               it.hasPosition ? '' : ' <span class="tag-watch">未入场</span>'
             }</div>
             <div class="lr-sub">${esc(it.category || c.breedName || '')} · Lv.${c.level || 1} · 持有 ${it.holdingDays} 天${
@@ -76,12 +87,14 @@ export async function render() {
         <span class="badge-lv">Lv.${c.level || 1}</span>
         ${it.hasPosition ? (c.hungry ? '<span class="badge-state">🍚</span>' : '') : '<span class="badge-state">👀</span>'}
         <div class="yard-bg">${chickenSVG(c, { size: 92, showHungry: !!it.hasPosition })}</div>
-        <div class="name">${esc(it.nickname)}</div>
+        <div class="name" title="${esc(it.nickname)}">${esc(it.nickname)}</div>
         <div class="sub" title="${esc(c.breedName || '')}${c.look && c.look.name ? '·' + esc(c.look.name) : ''}">${esc(it.fundCode)} · ${esc(it.category || c.breedName || '')}</div>
         <div class="pct ${pctClass(it.todayPct)}" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
         ${
           it.hasPosition
-            ? `<div class="sub">收益率 <b class="${pctClass(it.profitRate)}">${it.profitRate === null ? '--' : pct(it.profitRate, 1)}</b></div>`
+            ? `<div class="sub">盈亏 <b class="${pctClass(it.profitRate)}">${profitText(it)}</b> <span class="build-tag ${
+                it.profitRate < 0 ? 'down' : it.profitRate > 0 ? 'up' : ''
+              }">${esc((c.build && c.build.label) || '匀称')}</span></div>`
             : `<div class="sub">未设置持仓 · 暂不进鸡舍</div>`
         }
         <div class="chicken-actions">
@@ -321,7 +334,9 @@ export function adoptModal() {
       const pickedBox = body.querySelector('#fd-picked');
       const setPicked = (name, code) => {
         codeInput.value = code;
-        nickInput.value = (name || '').slice(0, 12);
+        // 昵称不再截断（曾经 slice(0,12) 导致「易方达中债7-10年期国」这种断名）；
+        // 留空则由服务端显示完整基金名，用户可以之后在「编辑」里自定义
+        nickInput.value = '';
         resultBox.innerHTML = `<span class="selected-fund">✓ ${esc(name || code)} ${esc(code)}</span>`;
         if (pickedBox)
           pickedBox.innerHTML = `已选：<b>${esc(name || code)}</b> <span class="muted">${esc(code)}</span>`;

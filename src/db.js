@@ -264,15 +264,22 @@ const ACHIEVEMENTS = [
   ['early_bird', '早起鸟', '早上 7 点前完成签到', 'egg', '早上 7 点前签到', 10],
 ];
 
+/**
+ * 每日待办：只保留需要「真实产出」的事项（报告 / 心得 / 看持仓），
+ * 纯点击型的打扫、放音乐已下线，避免无意义动作刷饲料。
+ */
 const TASKS = [
-  ['feed_3', '投研喂食', '给 3 只鸡加餐（每次附一份报告或一条 ≥20 字心得）', 3, 3, 2],
-  ['pat_sad', '安慰一下', '给今天跌得最多的鸡写下一条安抚笔记（≥10 字）', 1, 3, 3],
-  ['check_yard', '巡视鸡舍', '打开鸡舍，并点开任意一只鸡看持仓详情', 2, 2, 1],
+  ['feed_3', '投研喂食', '给 3 只鸡加餐，每次附一份报告或一条 ≥20 字心得', 3, 3, 2],
+  ['pat_sad', '安慰下跌的持仓', '给今天跌得最多的鸡写一条安抚笔记（≥10 字）', 1, 3, 3],
+  ['check_yard', '复检持仓', '点开任意一只鸡，看一眼持仓与关键信息', 2, 2, 1],
   ['read_report', '读一份报告', '打开任意一份研究报告', 1, 5, 3],
-  ['clean_yard', '打扫鸡舍', '先照料所有饿了/打蔫的鸡，再打扫一次鸡舍', 1, 3, 2],
-  ['add_fund', '研究一只新基', '领养一只新基金或查看一只观察区的基', 1, 3, 2],
+  ['report_1', '传一份研报', '给任意一只持仓基金上传或关联一份报告', 1, 4, 3],
+  ['add_fund', '研究一只新基', '领养一只新基金，或查看一只观察区的基金', 1, 3, 2],
   ['note_1', '写下投资心得', '在任意基金下写一条 ≥20 字的投资心得', 1, 3, 2],
 ];
+
+/** 已下线任务（启动时清理，避免老数据继续被抽到） */
+const OBSOLETE_TASKS = ['clean_yard'];
 
 /* ---------- 轻量迁移：管理员标记 ---------- */
 const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
@@ -334,6 +341,10 @@ const upsertTask = db.prepare(
 db.transaction(() => {
   for (const a of ACHIEVEMENTS) insertAch.run(...a);
   for (const t of TASKS) upsertTask.run(...t);
+  for (const code of OBSOLETE_TASKS) {
+    db.prepare('DELETE FROM user_tasks WHERE task_code = ?').run(code);
+    db.prepare('DELETE FROM tasks WHERE code = ?').run(code);
+  }
 })();
 
 module.exports = db;

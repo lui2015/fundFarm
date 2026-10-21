@@ -194,7 +194,8 @@ async function getFundProfile(code, type) {
   if (cached) return cached;
 
   const wantStocks = ['equity', 'index', 'hybrid', 'qdii', 'fof', 'other'].indexOf(type) >= 0;
-  const wantBonds = ['bond', 'hybrid'].indexOf(type) >= 0;
+  // 指数型里有一大类是「指数型-固收 / 债券指数」，没有股票持仓，必须同时抓债券持仓
+  const wantBonds = ['bond', 'hybrid', 'index', 'other'].indexOf(type) >= 0;
 
   const out = { code, type, stocks: [], bonds: [], asOf: null, stockPercent: null, bondPercent: null };
   const tasks = [];
@@ -517,6 +518,13 @@ function toNum(v) {
   return isFinite(n) ? n : null;
 }
 
+/** 百分比字符串（'0.10%'）转数字；无数据返回 null */
+function toPctNum(v) {
+  if (v === null || v === undefined) return null;
+  const n = parseFloat(String(v).replace('%', '').trim());
+  return isFinite(n) ? n : null;
+}
+
 /** 清洗占位值：'--' / '—' / 空串 一律视为无数据 */
 function cleanText(v) {
   const s = v === null || v === undefined ? '' : String(v).trim();
@@ -557,14 +565,26 @@ async function getFundInfo(code) {
       manager: v.JJJL || local?.manager || null,
       established: v.ESTABDATE || local?.established || null,
       scale: v.ENDNAV || local?.scale || null,
-      // 基金「健康指标」：收益、回撤、夏普、波动、风险等级（东财口径，缺失为 null）
+      // 基金「健康指标」：各区间收益 + 回撤 / 波动 / 夏普 / 风险等级（东财口径，缺失为 null）
       metrics: {
-        syl1n: toNum(v.SYL_1N),
-        syl3n: toNum(v.SYL_3N),
+        sylZ: toNum(v.SYL_Z), // 近 1 周
+        sylY: toNum(v.SYL_Y), // 近 1 月
+        syl3y: toNum(v.SYL_3Y), // 近 3 月
+        syl6y: toNum(v.SYL_6Y), // 近 6 月
+        sylJn: toNum(v.SYL_JN), // 今年来
+        syl1n: toNum(v.SYL_1N), // 近 1 年
+        syl2n: toNum(v.SYL_2N), // 近 2 年
+        syl3n: toNum(v.SYL_3N), // 近 3 年
+        sylLn: toNum(v.SYL_LN), // 成立来
         sharpe: toNum(v.SHARP1),
         maxDrawdown: toNum(v.MAXRETRA1),
         volatility: toNum(v.STDDEV1),
         riskLevel: toNum(v.RISKLEVEL),
+        // 申购费率（RATE 为折后费率，SOURCERATE 为原费率），如 '0.10%' → 0.1
+        rate: toPctNum(v.RATE),
+        sourceRate: toPctNum(v.SOURCERATE),
+        minBuy: toNum(v.MINSG),
+        buyStatus: cleanText(v.SGZT),
       },
     };
     upsertFund(info);
@@ -645,7 +665,7 @@ function guessType(code) {
 const exploreCache = new TTLCache(10 * 60 * 1000);
 
 /** type -> 天天基金排行 ft 参数 */
-const EXPLORE_TYPES = { all: 'all', zs: 'zs', gp: 'gp', hh: 'hh', zq: 'zq', qdii: 'qdii', fof: 'fof' };
+const EXPLORE_TYPES = { all: 'all', zs: 'zs', gp: 'gp', hh: 'hh', zq: 'zq', qdii: 'qdii', fof: 'fof', hb: 'hb' };
 /** 排序字段白名单：近1年 / 近6月 / 近3月 / 近1月 / 日涨幅 / 成立来 / 今年来 */
 const EXPLORE_SORTS = { '1nzf': 11, '6yzf': 10, '3yzf': 9, '1yzf': 8, rzdf: 6, lnzf: 15, jnzf: 14 };
 
@@ -667,12 +687,21 @@ async function explore(opts = {}) {
   const cached = exploreCache.get(key);
   if (cached) return cached;
 
-  const url =
-    `https://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=kf&ft=${EXPLORE_TYPES[type]}` +
-    `&rs=&gs=0&sc=${sort}&st=desc&pi=${page}&pn=${size}&dx=1&v=${Date.now()}`;
+  // 货币基金在另一个榜单（dt=hb），字段位置也略有差异
+  const money = type === 'hb';
+  const url = money
+    ? `https://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=hb&ft=&rs=&gs=0&sc=${sort}&st=desc` +
+      `&pi=${page}&pn=${size}&dx=1&v=${Date.now()}`
+    : `https://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=kf&ft=${EXPLORE_TYPES[type]}` +
+      `&rs=&gs=0&sc=${sort}&st=desc&pi=${page}&pn=${size}&dx=1&v=${Date.now()}`;
   const text = await fetchText(url, {
     timeout: 10000,
-    headers: { 'User-Agent': UA, Referer: 'https://fund.eastmoney.com/data/fundranking.html' },
+    headers: {
+      'User-Agent': UA,
+      Referer: money
+        ? 'https://fund.eastmoney.com/data/hbxfundranking.html'
+        : 'https://fund.eastmoney.com/data/fundranking.html',
+    },
   });
   const m = text.match(/datas:(\[[\s\S]*?\]),allRecords:(\d+)/);
   if (!m) throw new Error('bad_explore_payload');
@@ -681,16 +710,31 @@ async function explore(opts = {}) {
     .map((line) => {
       const f = String(line).split(',');
       if (!f[0] || !/^\d{6}$/.test(f[0])) return null;
-      return {
+      const base = {
         code: f[0],
         name: f[1],
         date: f[3] || null,
-        nav: numAt(f, 4),
         dayPct: numAt(f, 6),
         m1: numAt(f, 8),
         m3: numAt(f, 9),
         m6: numAt(f, 10),
         y1: numAt(f, 11),
+      };
+      // 货币型没有净值，只有万份收益 / 七日年化，且后面几个月/年字段整体前移一位
+      if (money) {
+        return {
+          ...base,
+          nav: null,
+          y3: numAt(f, 12),
+          ytd: numAt(f, 13),
+          estab: f[15] || null,
+          sevenDay: numAt(f, 5),
+          wanfen: numAt(f, 4),
+        };
+      }
+      return {
+        ...base,
+        nav: numAt(f, 4),
         y3: numAt(f, 13),
         ytd: numAt(f, 14),
         estab: f[16] || null,
@@ -709,6 +753,7 @@ async function explore(opts = {}) {
     counts.qdii = Number(cnt[5]);
     counts.fof = Number(cnt[6]);
   }
+  if (money) counts.hb = Number(m[2]) || items.length;
 
   return exploreCache.set(key, {
     type,
@@ -975,7 +1020,8 @@ function weatherOf(pct) {
   if (pct >= 0.8) return { key: 'sunny', label: '晴', icon: 'sun', moodDelta: 5 };
   if (pct > -0.8) return { key: 'cloudy', label: '多云', icon: 'cloud', moodDelta: 0 };
   if (pct > -2) return { key: 'overcast', label: '阴', icon: 'overcast', moodDelta: -3 };
-  return { key: 'rain', label: '雨', icon: 'rain', moodDelta: -8 };
+  if (pct > -3) return { key: 'rain', label: '雨', icon: 'rain', moodDelta: -8 };
+  return { key: 'storm', label: '雷雨', icon: 'storm', moodDelta: -12 };
 }
 
 function getStats() {

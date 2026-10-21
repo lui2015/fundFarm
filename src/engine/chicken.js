@@ -27,6 +27,45 @@ const BREEDS = {
   other: { key: 'other', name: '土鸡', desc: '皮实好养', color: '#C89B62', accent: '#8B6E4E' },
 };
 
+/**
+ * 品种 ↔ 真实基金类型（东财 FTYPE 大类）。
+ * ft 为天天基金排行接口的类型参数，用于「分类查询」；categories 是该大类下的细分类型。
+ */
+const FUND_TYPES = {
+  equity: { ft: 'gp', name: '股票型', categories: ['股票型'] },
+  index: {
+    ft: 'zs',
+    name: '指数型',
+    categories: ['指数型-股票', '指数型-债券', '指数型-海外股票', '指数型-其他'],
+  },
+  hybrid: {
+    ft: 'hh',
+    name: '混合型',
+    categories: ['混合型-偏股', '混合型-偏债', '混合型-灵活', '混合型-平衡', '混合型-绝对收益'],
+  },
+  bond: {
+    ft: 'zq',
+    name: '债券型',
+    categories: ['债券型-长债', '债券型-中短债', '债券型-混合一级', '债券型-混合二级', '债券型-可转债'],
+  },
+  qdii: {
+    ft: 'qdii',
+    name: 'QDII',
+    categories: ['QDII', 'QDII-普通股票', 'QDII-混合', 'QDII-债券', 'QDII-另类投资'],
+  },
+  money: { ft: 'hb', name: '货币型', categories: ['货币型', '货币型-普通货币', '理财型'] },
+  fof: {
+    ft: 'fof',
+    name: 'FOF',
+    categories: ['FOF', 'FOF-稳健型', 'FOF-均衡型', 'FOF-进取型', '养老目标日期', '养老目标风险'],
+  },
+  other: { ft: 'all', name: '其他', categories: ['其他', '保本型', '分级杠杆', '固定收益'] },
+};
+
+function fundTypeOf(breedKey) {
+  return FUND_TYPES[breedKey] || FUND_TYPES.other;
+}
+
 function breedOf(type) {
   return BREEDS[type] ? BREEDS[type].key : 'other';
 }
@@ -397,6 +436,8 @@ function interact(chickenId, action, userId, material = null) {
     if (!user || user.feed < 1) return { error: 'no_feed' };
     db.prepare('UPDATE users SET feed = feed - 1 WHERE id = ?').run(userId);
     c.satiety = clamp(c.satiety + (isReport ? 30 : 25), 0, 100);
+    // 每日衰减健康 -2，靠「带材料喂食」+4 把健康养住（纯点击的打扫已下线）
+    c.health = clamp(c.health + 4, 0, 100);
     c.bond = clamp(c.bond + 3, 0, 100);
     c.growth += 2 + bonus;
   } else if (action === 'pat') {
@@ -460,31 +501,31 @@ function careNeeded(userId) {
     }));
 }
 
-/** 全场打扫 / 播放音乐 */
-function yardAction(userId, action) {
-  const rows = db
-    .prepare(
-      `SELECT c.* FROM chickens c JOIN adoptions a ON a.id = c.adoption_id
-       WHERE a.user_id = ? AND ${IN_YARD}`
-    )
-    .all(userId);
-  const now = new Date().toISOString();
-  for (const c of rows) {
-    if (action === 'clean') {
-      c.health = clamp(c.health + 8, 0, 100);
-      c.mood = clamp(c.mood + 5, 0, 100);
-    } else if (action === 'music') {
-      c.mood = clamp(c.mood + 10, 0, 100);
-    }
-    c.growth += 1;
-    c.level = levelInfo(c.growth).level;
-    c.last_decay_at = now;
-    saveChicken(c);
+/**
+ * 收益体型：收益越差越瘦，越好越壮。
+ * 前端 public/js/chicken.js 按 key 缩放身体椭圆，label 用于卡片上的文字标签。
+ */
+const BUILDS = [
+  { key: 'veryThin', label: '暴瘦', min: -Infinity, max: -30, tip: '亏得不轻' },
+  { key: 'thin', label: '瘦', min: -30, max: -10, tip: '还在亏' },
+  { key: 'slim', label: '偏瘦', min: -10, max: 0, tip: '小幅浮亏' },
+  { key: 'normal', label: '匀称', min: 0, max: 15, tip: '状态正常' },
+  { key: 'plump', label: '微胖', min: 15, max: 30, tip: '有点赚头' },
+  { key: 'fat', label: '胖', min: 30, max: 60, tip: '吃得不错' },
+  { key: 'obese', label: '肥嘟嘟', min: 60, max: Infinity, tip: '赚翻了' },
+];
+
+function buildOf(profitRate) {
+  const r = Number(profitRate);
+  if (profitRate === null || profitRate === undefined || !Number.isFinite(r)) {
+    return { key: 'normal', label: '匀称', tip: '未建仓 / 暂无收益', profitRate: null };
   }
-  return { ok: true, affected: rows.length };
+  const b = BUILDS.find((x) => r >= x.min && r < x.max) || BUILDS[3];
+  return { key: b.key, label: b.label, tip: b.tip, profitRate: Math.round(r * 100) / 100 };
 }
 
-function publicChicken(c, seed) {
+/** 收益率 → 体型（每个自然日趋势一致，不随今日涨跌抖动） */
+function publicChicken(c, seed, profitRate) {
   const lv = levelInfo(c.growth);
   const mood = overallMood(c);
   const cd = JSON.parse(c.cooldowns || '{}');
@@ -515,6 +556,7 @@ function publicChicken(c, seed) {
     streakDown: c.streak_down,
     state: mood.key,
     stateLabel: mood.label,
+    build: buildOf(profitRate),
     thin: c.health < 40,
     canFeed: !cd.feed || now - cd.feed >= COOLDOWN.feed,
     canPat: !cd.pat || now - cd.pat >= COOLDOWN.pat,
@@ -531,9 +573,13 @@ function holdingDays(adoption) {
 module.exports = {
   LEVELS,
   BREEDS,
+  FUND_TYPES,
+  fundTypeOf,
   breedOf,
   breedInfo,
   lookOf,
+  buildOf,
+  BUILDS,
   levelInfo,
   getChicken,
   applyDailyEvent,
@@ -542,7 +588,6 @@ module.exports = {
   checkCooldown,
   interact,
   careNeeded,
-  yardAction,
   publicChicken,
   overallMood,
   holdingDays,

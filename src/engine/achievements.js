@@ -113,14 +113,19 @@ function check(userId, ctx = {}) {
 }
 
 function list(userId) {
-  const rows = db.prepare('SELECT * FROM achievements ORDER BY category, reward').all();
-  const owned = new Set(
-    db
-      .prepare('SELECT code FROM user_achievements WHERE user_id = ?')
-      .all(userId)
-      .map((r) => r.code)
-  );
-  return rows.map((a) => ({ ...a, unlocked: owned.has(a.code) }));
+  // 带上解锁时间，「我的 · 成就」按最近解锁排序展示
+  const rows = db
+    .prepare(
+      `SELECT a.*, ua.unlocked_at AS unlocked_at FROM achievements a
+       LEFT JOIN user_achievements ua ON ua.code = a.code AND ua.user_id = ?
+       ORDER BY a.category, a.reward`
+    )
+    .all(userId);
+  return rows.map((a) => ({
+    ...a,
+    unlocked: !!a.unlocked_at,
+    unlockedAt: a.unlocked_at || null,
+  }));
 }
 
 function progressFor(userId, code) {

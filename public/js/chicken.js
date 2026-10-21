@@ -38,17 +38,58 @@ export function chickenSVG(c, opts = {}) {
     { rx: 26, ry: 26, headR: 16, headX: 88, leg: 11 },
   ][variant] || { rx: 27, ry: 25, headR: 16, headX: 86, leg: 12 };
 
+  /* 收益体型：决定神情与动作（暴瘦无神、匀称正常、肥嘟嘟得意） */
+  const buildKey = (c && c.build && c.build.key) || 'normal';
+  const weakBuild = buildKey === 'veryThin' || buildKey === 'thin';
+  const plumpBuild = buildKey === 'plump' || buildKey === 'fat' || buildKey === 'obese';
+  const starving = buildKey === 'veryThin';
+
   const eye = (() => {
     const cx1 = shape.headX - 8;
     const cx2 = shape.headX + 6;
-    if (state === 'bad' || sick) {
-      return `<path d="M${cx1 - 4} 40 q4 4 8 0" stroke="${dark}" stroke-width="2" fill="none" stroke-linecap="round"/>
-              <path d="M${cx2 - 4} 40 q4 4 8 0" stroke="${dark}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+    /* 生病 / 心情差优先：两条下垂的弧线 */
+    if (sick || state === 'bad') {
+      return `<g class="ck-eye"><path d="M${cx1 - 4} 40 q4 4 8 0" stroke="${dark}" stroke-width="2" fill="none" stroke-linecap="round"/></g>
+              <g class="ck-eye"><path d="M${cx2 - 4} 40 q4 4 8 0" stroke="${dark}" stroke-width="2" fill="none" stroke-linecap="round"/></g>`;
     }
+    /* 肥：满足的眯眼 ^ ^ */
+    if (plumpBuild) {
+      return `<g class="ck-eye"><path d="M${cx1 - 4.4} 42.4 q4.4 -5 8.8 0" stroke="${dark}" stroke-width="2.2" fill="none" stroke-linecap="round"/></g>
+              <g class="ck-eye"><path d="M${cx2 - 4.4} 42.4 q4.4 -5 8.8 0" stroke="${dark}" stroke-width="2.2" fill="none" stroke-linecap="round"/></g>`;
+    }
+    /* 瘦：半睁、上眼皮压下来，瞳孔没光 */
+    if (weakBuild) {
+      return `<g class="ck-eye">
+                <circle cx="${cx1}" cy="43.8" r="2.5" fill="${dark}" opacity=".82"/>
+                <path d="M${cx1 - 5} 39.4 q5 -2.6 10 0" stroke="${dark}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+              </g>
+              <g class="ck-eye">
+                <circle cx="${cx2}" cy="43.8" r="2.5" fill="${dark}" opacity=".82"/>
+                <path d="M${cx2 - 5} 39.4 q5 -2.6 10 0" stroke="${dark}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+              </g>`;
+    }
+    /* 匀称：圆眼 + 高光，靠 CSS 眨眼 */
     const r = state === 'great' ? 3.4 : 2.8;
-    return `<circle cx="${cx1}" cy="41" r="${r}" fill="${dark}"/><circle cx="${cx1 + 1.4}" cy="39.8" r="1" fill="#fff"/>
-            <circle cx="${cx2}" cy="41" r="${r}" fill="${dark}"/><circle cx="${cx2 + 1.4}" cy="39.8" r="1" fill="#fff"/>`;
+    return `<g class="ck-eye"><circle cx="${cx1}" cy="41" r="${r}" fill="${dark}"/><circle cx="${cx1 + 1.4}" cy="39.8" r="1" fill="#fff"/></g>
+            <g class="ck-eye"><circle cx="${cx2}" cy="41" r="${r}" fill="${dark}"/><circle cx="${cx2 + 1.4}" cy="39.8" r="1" fill="#fff"/></g>`;
   })();
+
+  /* 肥鸡脸上两坨腮红，暴瘦鸡头顶一滴虚汗 */
+  const blush = plumpBuild
+    ? `<g fill="#F08A8A" opacity=".35">
+        <ellipse cx="${shape.headX - 13}" cy="50" rx="4.6" ry="2.8"/>
+        <ellipse cx="${shape.headX + 8}" cy="50" rx="4.6" ry="2.8"/>
+      </g>`
+    : '';
+  const sweat = starving
+    ? `<g class="ck-sweat"><path d="M${shape.headX + 19} 20 q4 5.6 0 9 q-4 -3.4 0 -9" fill="#8FD3F4" opacity=".95"/>
+        <circle cx="${shape.headX + 17.8}" cy="24.6" r="1.1" fill="#fff" opacity=".75"/></g>`
+    : '';
+  const sparkle = buildKey === 'obese'
+    ? `<g class="ck-sparkle" fill="#FFD54A" opacity=".9">
+        <path d="M${shape.headX + 22} 22 l1.6 4.2 l4.2 1.6 l-4.2 1.6 l-1.6 4.2 l-1.6 -4.2 l-4.2 -1.6 l4.2 -1.6 z"/>
+      </g>`
+    : '';
 
   const comb = (() => {
     const cx = shape.headX;
@@ -118,8 +159,19 @@ export function chickenSVG(c, opts = {}) {
         <text x="24" y="24" text-anchor="middle" font-size="11" fill="#8A8172">饿</text></g>`
     : '';
 
-  const bodyRx = thin ? 20 : shape.rx;
-  const bodyRy = thin ? 20 : shape.ry;
+  /* 收益体型：亏损越瘦、盈利越壮（build 由后端按收益率区间给出） */
+  const BUILD_SCALE = {
+    veryThin: [0.7, 0.86],
+    thin: [0.84, 0.92],
+    slim: [0.92, 0.97],
+    normal: [1, 1],
+    plump: [1.06, 1.04],
+    fat: [1.12, 1.08],
+    obese: [1.18, 1.12],
+  };
+  const bs = BUILD_SCALE[buildKey] || BUILD_SCALE.normal;
+  const bodyRx = (thin ? 20 : shape.rx) * bs[0];
+  const bodyRy = (thin ? 20 : shape.ry) * bs[1];
   const clipId = `ckbody${++clipSeq}`;
 
   /* 花色图案：全部裁剪在身体里，保证不溢出轮廓 */
@@ -195,10 +247,11 @@ export function chickenSVG(c, opts = {}) {
       aria-label="${(c && c.breedName) || '鸡'}${look.name ? '·' + look.name : ''} Lv.${lv}">
     <defs><clipPath id="${clipId}"><ellipse cx="60" cy="70" rx="${bodyRx}" ry="${bodyRy}"/></clipPath></defs>
     <g transform="translate(60,72) scale(${scale}) translate(-60,-72)">
-      <!-- 地面草 -->
+      <!-- 地面草（不参与鸡的动作） -->
       <g stroke="#8CC63F" stroke-width="3" stroke-linecap="round" opacity=".7">
         <path d="M22 100 l0 -8"/><path d="M31 100 l-3 -7"/><path d="M100 100 l0 -8"/><path d="M108 100 l3 -7"/>
       </g>
+    <g class="ck-anim ck-${buildKey}" style="transform-origin:60px 98px">
       <!-- 腿 -->
       <g stroke="${accent}" stroke-width="3.4" stroke-linecap="round">
         <path d="M52 88 l0 ${shape.leg}"/><path d="M68 88 l0 ${shape.leg}"/>
@@ -221,11 +274,15 @@ export function chickenSVG(c, opts = {}) {
       <path d="M${shape.headX + 14} 44 l12 4 l-12 5 z" fill="#FFC53D"/>
       <!-- 肉垂 -->
       <path d="M${shape.headX + 10} 54 q4 6 -2 9 q-5 -3 -1 -9 z" fill="${combColor}" opacity=".9"/>
+      ${blush}
       ${eye}
       ${accessorySvg}
       ${halo}
       ${rainSvg}
       ${featherSvg}
+      ${sweat}
+      ${sparkle}
+    </g>
     </g>
     ${eggSvg}
     ${hungrySvg}

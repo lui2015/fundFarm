@@ -66,78 +66,294 @@ export async function render(param) {
   const m = data.metrics || {};
   const c = data.chicken;
 
-  /* ---------- 基金健康指标（替代原来的养鸡四维进度条） ---------- */
+  /* ---------- 基金健康指标：两列，收益用同一把尺子，风险用区间条 ---------- */
   const fm = f.metrics || {};
   const RISK_LABEL = ['', 'R1 低风险', 'R2 中低风险', 'R3 中风险', 'R4 中高风险', 'R5 高风险'];
-  /**
-   * 一条指标：signed=true 表示有正负（收益、夏普），进度条从中线向左右生长；
-   * 否则按绝对值从左往右填充（回撤、波动率）。
-   */
-  const metricBar = (label, text, value, cls, tip, signed) => {
-    const v = Number(value) || 0;
-    let inner;
-    if (signed) {
-      const w = Math.min(50, Math.abs(v) * 50);
-      const left = v >= 0 ? 50 : 50 - w;
-      inner = `<span style="position:absolute;left:${left.toFixed(1)}%;width:${w.toFixed(1)}%"></span>`;
-    } else {
-      const w = Math.round(Math.max(0, Math.min(1, v)) * 100);
-      inner = `<span style="width:${w}%"></span>`;
-    }
-    return `<div class="bar-row metric" title="${esc(tip)}">
-      <span>${label}</span>
-      <span class="bar${signed ? ' bi' : ''}${cls ? ' bar-' + cls : ''}">${inner}</span>
+  // 收益类共用一把尺子：±50% 满格，中线为 0，条形长度可以直接横向比较
+  const RET_RANGE = 50;
+
+  const RET_DEFS = [
+    { key: 'sylY', label: '近1月' },
+    { key: 'syl3y', label: '近3月' },
+    { key: 'syl6y', label: '近6月' },
+    { key: 'sylJn', label: '今年来' },
+    { key: 'syl1n', label: '近1年' },
+    { key: 'syl2n', label: '近2年' },
+    { key: 'syl3n', label: '近3年' },
+    { key: 'sylLn', label: '成立来' },
+  ];
+
+  /** 双向条形：中线为 0，正红负绿（A 股习惯），range 为单侧满格刻度 */
+  const barTile = (label, v, range, text, cls, tip) => {
+    const w = Math.min(50, (Math.abs(v) / range) * 50);
+    const left = v >= 0 ? 50 : 50 - w;
+    return `<div class="m-cell" title="${esc(tip)}">
+      <div class="m-top"><span class="m-label">${label}</span><b class="${cls}">${text}</b></div>
+      <div class="m-bar"><span class="m-fill ${cls === 'up' ? 'up' : cls === 'down' ? 'down' : 'flat'}"
+        style="left:${left.toFixed(1)}%;width:${w.toFixed(1)}%"></span></div>
+    </div>`;
+  };
+
+  /** 单列整行：周期涨跌统一排成一列，条形更长、更好比 */
+  const barRow = (label, v, range, text, cls, tip) => {
+    const w = Math.min(50, (Math.abs(v) / range) * 50);
+    const left = v >= 0 ? 50 : 50 - w;
+    return `<div class="m-row" title="${esc(tip)}">
+      <span class="m-label">${label}</span>
+      <span class="m-bar"><span class="m-fill ${cls === 'up' ? 'up' : cls === 'down' ? 'down' : 'flat'}"
+        style="left:${left.toFixed(1)}%;width:${w.toFixed(1)}%"></span></span>
       <b class="${cls}">${text}</b>
     </div>`;
   };
-  const hasHealth = [fm.syl1n, fm.maxDrawdown, fm.sharpe, fm.volatility].some((v) => typeof v === 'number');
-  const riskTag =
-    fm.riskLevel && RISK_LABEL[fm.riskLevel]
-      ? `<span class="tag">${esc(RISK_LABEL[fm.riskLevel])}</span>`
-      : '';
-  const healthRows = hasHealth
-    ? [
-        typeof fm.syl1n === 'number'
-          ? metricBar('近1年收益', pct(fm.syl1n), fm.syl1n / 50, fm.syl1n >= 0 ? 'up' : 'down', '近一年净值增长率（±50% 满格）', true)
-          : '',
-        typeof fm.maxDrawdown === 'number'
-          ? metricBar('最大回撤', pct(-Math.abs(fm.maxDrawdown)), Math.abs(fm.maxDrawdown) / 60, 'warn', '近一年最大回撤，越小越稳（60% 满格）')
-          : '',
-        typeof fm.sharpe === 'number'
-          ? metricBar(
-              '夏普比率',
-              fm.sharpe.toFixed(2),
-              fm.sharpe / 3,
-              fm.sharpe >= 1 ? 'up' : fm.sharpe < 0 ? 'down' : '',
-              '近一年夏普比率，>1 说明风险调整后收益不错',
-              true
-            )
-          : '',
-        typeof fm.volatility === 'number'
-          ? metricBar(
-              '波动率',
-              fm.volatility.toFixed(1) + '%',
-              fm.volatility / 45,
-              fm.volatility >= 30 ? 'down' : fm.volatility >= 20 ? 'warn' : '',
-              '近一年年化波动率，越小越稳'
-            )
-          : '',
-      ].join('')
-    : '<div class="muted" style="font-size:12px">暂无健康指标数据（第三方接口暂不可用）</div>';
-  const healthBlock = `<div style="margin-top:12px">
-      <div class="card-title" style="margin:0 0 4px;font-size:13px">基金健康指标
-        <span class="spacer"></span>${riskTag}
+
+  const retRows = RET_DEFS.map((d) => {
+    const v = fm[d.key];
+    if (typeof v !== 'number' || !Number.isFinite(v)) return '';
+    return barRow(d.label, v, RET_RANGE, pct(v), v >= 0 ? 'up' : 'down', `${d.label}净值增长率（±50% 刻度）`);
+  }).filter(Boolean);
+
+  /** 风险类：红黄绿区间条 + 游标，游标落在哪一段就是哪一档 */
+  const RISK_TILES = [
+    {
+      key: 'maxDrawdown',
+      label: '最大回撤',
+      max: 60,
+      cuts: [20, 40],
+      sev: (v) => (v >= 40 ? 'danger' : v >= 20 ? 'warn' : 'ok'),
+      text: (v) => pct(-Math.abs(v)),
+      tip: '近 1 年最大回撤：<20% 温和 / 20~40% 偏大 / >40% 很大',
+    },
+    {
+      key: 'volatility',
+      label: '年化波动',
+      max: 40,
+      cuts: [15, 25],
+      sev: (v) => (v >= 25 ? 'danger' : v >= 15 ? 'warn' : 'ok'),
+      text: (v) => (v < 1 ? v.toFixed(2) : v.toFixed(1)) + '%',
+      tip: '近 1 年年化波动率：<15% 温和 / 15~25% 偏大 / >25% 剧烈',
+    },
+  ];
+
+  const riskTiles = RISK_TILES.map((d) => {
+    const raw = fm[d.key];
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return '';
+    const v = Math.abs(raw);
+    const sev = d.sev(v);
+    const [a, b] = d.cuts;
+    const x = Math.max(0, Math.min(1, v / d.max)) * 100;
+    return `<div class="m-cell" title="${esc(d.tip)}">
+      <div class="m-top"><span class="m-label">${d.label}</span><b class="${sev === 'ok' ? '' : 'risk-' + sev}">${d.text(raw)}</b></div>
+      <div class="m-track">
+        <span class="zone ok" style="flex:${a}"></span>
+        <span class="zone warn" style="flex:${b - a}"></span>
+        <span class="zone danger" style="flex:${d.max - b}"></span>
+        <i class="m-pin" style="left:${x.toFixed(1)}%"></i>
       </div>
-      ${healthRows}
+    </div>`;
+  }).filter(Boolean);
+
+  // 夏普：±3 为刻度，>1 才算风险调整后收益不错；货币基金波动趋 0 会被放大到 ±10 外，不展示
+  const sharpeV = fm.sharpe;
+  const sharpeTile =
+    typeof sharpeV === 'number' && Number.isFinite(sharpeV) && Math.abs(sharpeV) <= 10
+      ? barTile(
+          '夏普比率',
+          sharpeV,
+          3,
+          sharpeV.toFixed(2),
+          sharpeV >= 1 ? 'up' : sharpeV < 0 ? 'down' : '',
+          '近 1 年夏普比率：>1 说明风险调整后的收益不错（±3 刻度）'
+        )
+      : '';
+
+  const lvl = fm.riskLevel;
+  const riskLevelTile =
+    typeof lvl === 'number' && RISK_LABEL[lvl]
+      ? `<div class="m-cell" title="东财风险等级，R1 最低、R5 最高">
+          <div class="m-top"><span class="m-label">风险等级</span><b class="${
+            lvl >= 5 ? 'risk-danger' : lvl >= 4 ? 'risk-warn' : ''
+          }">${RISK_LABEL[lvl]}</b></div>
+          <div class="risk-scale lv${lvl}">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= lvl ? 'on' : ''}"></i>`).join('')}</div>
+        </div>`
+      : '';
+
+  /* ---------- 关键指标：右栏补充 8 项（年化 / 卡玛 / 胜率 / 规模 / 年限 / 集中度 / 费率） ---------- */
+  const yearsSince = (d) => {
+    if (!d) return null;
+    const t = Date.parse(d);
+    if (!Number.isFinite(t)) return null;
+    return (Date.now() - t) / (365.25 * 864e5);
+  };
+  const annualize = (totalPct, years) => {
+    if (typeof totalPct !== 'number' || !Number.isFinite(totalPct) || !years || years < 0.5) return null;
+    const base = 1 + totalPct / 100;
+    if (base <= 0) return null;
+    return (Math.pow(base, 1 / years) - 1) * 100;
+  };
+  const fmtScale = (scale) => {
+    const n = Number(scale);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n >= 1e8 ? (n / 1e8).toFixed(2) + ' 亿' : (n / 1e4).toFixed(0) + ' 万';
+  };
+  // 月度胜率：按自然月首末净值判断涨跌，取最近 24 个完整月
+  const monthWin = (() => {
+    const items = (data.history || []).filter((h) => h && h.date && Number.isFinite(Number(h.nav)));
+    if (items.length < 60) return null;
+    const groups = new Map();
+    for (const it of items) {
+      const key = String(it.date).slice(0, 7);
+      const g = groups.get(key);
+      if (!g) groups.set(key, { first: Number(it.nav), last: Number(it.nav) });
+      else g.last = Number(it.nav);
+    }
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    const closed = [...groups.keys()].sort().filter((k) => k !== thisMonth).slice(-24);
+    if (closed.length < 12) return null;
+    const up = closed.filter((k) => groups.get(k).last > groups.get(k).first).length;
+    return { up, n: closed.length, rate: (up / closed.length) * 100 };
+  })();
+
+  const extraRow = (label, value, cls, tip) => `<div class="m-row plain" title="${esc(tip)}">
+      <span class="m-label">${label}</span><span class="m-dots"></span><b class="${cls}">${value}</b>
     </div>`;
 
+  const extraRows = [];
+  if (typeof fm.sylZ === 'number') {
+    extraRows.push(extraRow('近1周', pct(fm.sylZ), fm.sylZ >= 0 ? 'up' : 'down', '近 1 周净值增长率'));
+  }
+  const yrs = yearsSince(f.established);
+  const annual = annualize(fm.sylLn, yrs);
+  if (annual !== null) {
+    extraRows.push(
+      extraRow('年化收益', pct(annual), annual >= 0 ? 'up' : 'down', `成立以来 ${yrs.toFixed(1)} 年的年化收益率`)
+    );
+  }
+  const annual3 = annualize(fm.syl3n, 3);
+  const calmar =
+    annual3 !== null && typeof fm.maxDrawdown === 'number' && Math.abs(fm.maxDrawdown) > 0.5
+      ? annual3 / Math.abs(fm.maxDrawdown)
+      : null;
+  if (calmar !== null) {
+    extraRows.push(
+      extraRow(
+        '卡玛比率',
+        calmar > 10 ? '>10' : calmar.toFixed(2),
+        calmar >= 1 ? 'up' : calmar < 0 ? 'down' : '',
+        '近 3 年年化收益 ÷ 最大回撤，>1 说明单位回撤换来的收益不错'
+      )
+    );
+  }
+  if (monthWin) {
+    extraRows.push(
+      extraRow('月度胜率', monthWin.rate.toFixed(0) + '%', '', `近 ${monthWin.n} 个月里 ${monthWin.up} 个月上涨`)
+    );
+  }
+  const scaleTxt = fmtScale(f.scale);
+  if (scaleTxt) extraRows.push(extraRow('基金规模', scaleTxt, '', '最新披露的基金资产净值'));
+  if (yrs !== null) extraRows.push(extraRow('成立年限', yrs.toFixed(1) + ' 年', '', `成立日 ${f.established}`));
+  const conc = data.profile ? data.profile.stockPercent || data.profile.bondPercent : null;
+  if (typeof conc === 'number') {
+    extraRows.push(
+      extraRow(
+        '前十持仓',
+        conc.toFixed(1) + '%',
+        '',
+        conc > 100 ? '前十大重仓（债券）合计占净值比，超过 100% 说明有杠杆' : '前十大重仓合计占净值比'
+      )
+    );
+  }
+  if (typeof fm.rate === 'number') {
+    extraRows.push(
+      extraRow(
+        '申购费率',
+        fm.rate.toFixed(2) + '%',
+        '',
+        typeof fm.sourceRate === 'number' && fm.sourceRate !== fm.rate
+          ? `折后申购费率，原价 ${fm.sourceRate}%`
+          : '申购费率'
+      )
+    );
+  }
+  // 货币基金等没有回撤 / 持仓数据的品种，用交易信息把右栏补齐
+  if (extraRows.length < 8 && fm.buyStatus) {
+    extraRows.push(extraRow('申购状态', esc(fm.buyStatus), '', '第三方接口披露的申购状态'));
+  }
+  if (extraRows.length < 8 && typeof fm.minBuy === 'number' && fm.minBuy > 0) {
+    extraRows.push(extraRow('起购金额', fm.minBuy + ' 元', '', '最低申购金额'));
+  }
+
+  const retCol = retRows.length
+    ? `<div class="m-sub">区间涨跌<span class="m-sub-tip">共用 ±50% 刻度，中线为 0</span></div>
+       <div class="m-rows">${retRows.join('')}</div>`
+    : '';
+  const extraCol = extraRows.length
+    ? `<div class="m-sub">关键指标</div>
+       <div class="m-rows">${extraRows.join('')}</div>`
+    : '';
+  const topCols =
+    retCol || extraCol
+      ? `<div class="health-cols">${
+          retCol ? `<div class="health-col">${retCol}</div>` : ''
+        }${extraCol ? `<div class="health-col">${extraCol}</div>` : ''}</div>`
+      : '';
+  const riskItems = [...riskTiles, sharpeTile, riskLevelTile].filter(Boolean);
+  const riskBlock = riskItems.length
+    ? `<div class="m-sub">风险与性价比</div>
+       <div class="metric-grid">${riskItems.join('')}</div>`
+    : '';
+
+  // 风险画像：把三个风控指标翻译成一句人话
+  const profileTags = [];
+  if (typeof fm.volatility === 'number') {
+    const v = fm.volatility;
+    profileTags.push(v < 8 ? '低波动' : v < 15 ? '中低波动' : v < 25 ? '中高波动' : '高波动');
+  }
+  if (typeof fm.maxDrawdown === 'number') {
+    const v = Math.abs(fm.maxDrawdown);
+    profileTags.push(v < 10 ? '回撤温和' : v < 25 ? '回撤中等' : v < 40 ? '回撤偏大' : '回撤很大');
+  }
+  if (typeof sharpeV === 'number' && Math.abs(sharpeV) <= 10) {
+    profileTags.push(sharpeV >= 1 ? '性价比好' : sharpeV >= 0 ? '性价比一般' : '性价比差');
+  }
+
+  const healthBlock = `<div class="metric-block">
+      <div class="card-title" style="margin:0 0 6px;font-size:13px">基金健康指标
+        <span class="spacer"></span>
+        <span class="muted" style="font-weight:400;font-size:11.5px">东方财富口径 · 近 1 年</span>
+      </div>
+      ${
+        profileTags.length
+          ? `<div class="m-profile">风险画像：${profileTags.map((t) => `<b>${esc(t)}</b>`).join(' · ')}</div>`
+          : ''
+      }
+      ${
+        topCols || riskBlock
+          ? `${topCols}${riskBlock}
+             <div class="m-legend">涨红跌绿；回撤 / 波动是红黄绿区间条，黑色游标是当前值</div>`
+          : '<div class="muted" style="font-size:12px">暂无健康指标数据（第三方接口暂不可用）</div>'
+      }
+    </div>`;
+
+  // 昵称可能被用户自定义（或历史数据被截断），基金全名单独显示一行，避免看不全
+  const displayName = data.adoption?.nickname || f.name || code;
   const header = `
     <div class="card">
       <div style="display:flex;gap:14px;align-items:center">
         <div style="flex:0 0 110px">${c ? chickenSVG(c, { size: 110, showHungry: true }) : '<div class="empty">未领养</div>'}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:800;font-size:17px">${esc(data.adoption?.nickname || f.name || code)}</div>
-          <div class="muted" style="font-size:13px">${esc(code)} · ${esc(f.category || f.type || '')} ${esc(f.company || '')}</div>
+          <div style="font-weight:800;font-size:17px;line-height:1.35;word-break:break-word">${esc(displayName)}</div>
+          ${
+            f.name && f.name !== displayName
+              ? `<div class="muted" style="font-size:13px;word-break:break-word">${esc(f.name)}</div>`
+              : ''
+          }
+          <div class="muted" style="font-size:13px">${esc(code)} · ${esc(f.category || f.type || '')} ${esc(f.company || '')}
+            ${
+              c && c.build
+                ? `<span class="build-tag ${(data.metrics && data.metrics.profitRate) < 0 ? 'down' : (data.metrics && data.metrics.profitRate) > 0 ? 'up' : ''}">体型 · ${esc(c.build.label)}</span>`
+                : ''
+            }
+          </div>
           <div style="margin-top:6px;font-size:26px;font-weight:800;display:flex;align-items:baseline;gap:8px" class="${pctClass(q.pct ?? m.current?.pct)}">
             <span data-live-pct="${esc(code)}">${q.pct !== undefined && q.pct !== null ? pct(q.pct) : '--'}</span>
             <span class="live-tag" data-live-state>实时</span>
@@ -160,7 +376,7 @@ export async function render(param) {
               <div class="muted" style="font-size:12px;margin-top:2px">
                 养鸡状态：饱食 ${c.satiety} · 心情 ${c.moodValue} · 健康 ${c.health} · 亲密 ${c.bond}
               </div>
-              <div class="chicken-actions" style="margin-top:10px">
+              <div class="chicken-actions" style="margin-top:10px;max-width:340px">
                 <button class="btn ghost small" data-act="feed" data-id="${esc(c.id)}" ${
         c.canFeed ? '' : 'disabled'
       } title="喂食：需附一份报告或一条 ≥20 字心得">🌾 喂食</button>
@@ -222,7 +438,9 @@ export async function render(param) {
         ${f.indexCode ? `<div class="kv"><span class="k">指数代码</span><span>${esc(f.indexCode)}</span></div>` : ''}
         <div class="muted" style="font-size:12px;margin-top:6px">
           被动指数基金：不靠基金经理选股，净值跟着${esc(f.indexName || '标的指数')}走，
-          重点看<b>跟踪误差</b>、<b>规模</b>和<b>费率</b>，下面的重仓股即指数主要成分。
+          重点看<b>跟踪误差</b>、<b>规模</b>和<b>费率</b>，下面的重仓${
+            pf.stocks && pf.stocks.length ? '股' : '债券'
+          }即指数主要成分。
         </div>
       </div>`
       : '';
@@ -247,16 +465,46 @@ export async function render(param) {
       </div>`
       : '';
 
-  const bondsCard =
-    pf.bonds && pf.bonds.length
-      ? `<div class="card">
+  // 股票和债券都有数据时：债券型 / 混合型两类都展示；指数 / 股票型只在没有股票持仓时展示债券（避免噪音）
+  const showBonds =
+    pf.bonds &&
+    pf.bonds.length &&
+    (!pf.stocks || !pf.stocks.length || isBond || f.type === 'bond' || f.type === 'hybrid');
+  const bondsCard = showBonds
+    ? `<div class="card">
         <div class="card-title">重仓债券<span class="spacer"></span>
           <span class="muted" style="font-weight:400;font-size:12px">${asOfText} · 合计 ${
           pf.bondPercent ? pf.bondPercent.toFixed(2) + '%' : '--'
         }</span></div>
         ${pf.bonds.map((it, i) => holdingRow(i, it, 'bond')).join('')}
         <div class="muted" style="font-size:12px;margin-top:6px">
-          债券型基金重点看<b>久期</b>、<b>信用等级</b>与<b>杠杆</b>；信用债占比高时波动会明显大于利率债。
+          ${
+            isIndex
+              ? '债券指数基金：上面的重仓债券即指数成分券，' +
+                '重点看<b>久期</b>（决定对利率的敏感度）、<b>信用等级</b>与<b>跟踪误差</b>。'
+              : '债券型基金重点看<b>久期</b>、<b>信用等级</b>与<b>杠杆</b>；信用债占比高时波动会明显大于利率债。'
+          }
+          ${
+            typeof pf.bondPercent === 'number' && pf.bondPercent > 100
+              ? ` 前十大合计 ${pf.bondPercent.toFixed(2)}% 超过 100%，说明<b>加了杠杆</b>（债券基金的常态操作）。`
+              : ''
+          }
+        </div>
+      </div>`
+      : '';
+
+  /* 股票、债券都取不到时的兜底，避免右侧出现空白卡片 */
+  const noHoldingCard =
+    !isMoney && !(pf.stocks && pf.stocks.length) && !showBonds
+      ? `<div class="card">
+        <div class="card-title">持仓明细</div>
+        <div class="empty" style="padding:12px">
+          暂时取不到这只基金的持仓披露
+          <div class="muted" style="font-size:12px;margin-top:6px">
+            季报 / 半年报披露后才会更新；货币基金不披露个券明细。可在
+            <a href="https://fundf10.eastmoney.com/ccmx_${esc(code)}.html" target="_blank" rel="noopener noreferrer">基金档案</a>
+            查看原始持仓。
+          </div>
         </div>
       </div>`
       : '';
@@ -289,7 +537,7 @@ export async function render(param) {
       </div>`
     : '';
 
-  const profileCards = `${indexCard}${stocksCard}${bondsCard}${subjectCard}${moneyCard}`;
+  const profileCards = `${indexCard}${stocksCard}${bondsCard}${noHoldingCard}${subjectCard}${moneyCard}`;
 
   const info = `
     <div class="card">
@@ -390,7 +638,11 @@ export async function render(param) {
       </div>
     </div>`;
 
-  return `${header}${chart}${info}${profileCards}${holding}${reports}${notes}
+  // 桌面端左右分栏：主栏放走势/持仓/报告/心得，右栏放类型关键信息与基金档案
+  return `<div class="detail-split">
+      <div class="detail-main">${header}${chart}${holding}${reports}${notes}</div>
+      <div class="detail-side">${profileCards}${info}</div>
+    </div>
     <div class="disclaimer">数据来源：第三方公开接口，可能存在延迟或误差。<br/>本工具仅供个人学习研究，不构成投资建议。</div>`;
 }
 

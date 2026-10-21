@@ -370,6 +370,263 @@ textarea.input {
   font-weight: 800;
   line-height: 1.1;
 }
+/* ---------- 天气动画（纯 CSS，无图片） ---------- */
+.wx {
+  position: relative;
+  width: 74px;
+  height: 62px;
+  flex: 0 0 74px;
+}
+.wx-sun {
+  position: absolute;
+  left: 13px;
+  top: 2px;
+  width: 33px;
+  height: 33px;
+  border-radius: 50%;
+  z-index: 1;
+  background: radial-gradient(circle at 34% 30%, #fffbe0, #ffd54a 62%, #ffb300);
+  box-shadow: 0 0 16px rgba(255, 214, 77, 0.85);
+  animation: wx-pulse 3.4s ease-in-out infinite;
+}
+/* 旋转的光芒：conic 条纹 + 环形遮罩，只留太阳外圈 */
+.wx-sun::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(255, 255, 255, 0.6) 0 5deg, transparent 5deg 30deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 46%, #000 48%);
+  mask: radial-gradient(circle, transparent 0 46%, #000 48%);
+  animation: wx-spin 26s linear infinite;
+}
+.wx-cloud {
+  position: absolute;
+  z-index: 2;
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: 0 3px 8px rgba(40, 55, 75, 0.16);
+}
+.wx-cloud::before,
+.wx-cloud::after {
+  content: '';
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+.wx-c1 {
+  left: 16px;
+  top: 34px;
+  width: 46px;
+  height: 15px;
+  animation: wx-drift 7.5s ease-in-out infinite;
+}
+.wx-c1::before {
+  width: 19px;
+  height: 19px;
+  left: 6px;
+  top: -9px;
+}
+.wx-c1::after {
+  width: 14px;
+  height: 14px;
+  left: 24px;
+  top: -6px;
+}
+.wx-c2 {
+  left: 2px;
+  top: 20px;
+  width: 30px;
+  height: 11px;
+  opacity: 0.78;
+  animation: wx-drift 9.5s ease-in-out infinite reverse;
+}
+.wx-c2::before {
+  width: 13px;
+  height: 13px;
+  left: 4px;
+  top: -6px;
+}
+.wx-c2::after {
+  width: 10px;
+  height: 10px;
+  left: 16px;
+  top: -4px;
+}
+.wx-c3 {
+  left: 32px;
+  top: 12px;
+  width: 26px;
+  height: 10px;
+  opacity: 0.5;
+  animation: wx-drift 11s ease-in-out infinite;
+}
+.wx-c3::before {
+  width: 12px;
+  height: 12px;
+  left: 3px;
+  top: -6px;
+}
+
+/* 晴：太阳在最前面，云很淡 */
+.wx-sunny .wx-sun {
+  z-index: 3;
+}
+.wx-sunny .wx-cloud {
+  opacity: 0.5;
+}
+.wx-sunny .wx-c3 {
+  opacity: 0.3;
+}
+/* 多云：太阳半遮 */
+.wx-cloudy .wx-sun {
+  opacity: 0.92;
+}
+/* 阴：云压住太阳、整体发灰 */
+.wx-overcast .wx-sun {
+  opacity: 0.2;
+  filter: saturate(0.45);
+}
+.wx-overcast .wx-cloud {
+  background: #e9eef4;
+}
+.wx-overcast .wx-c2,
+.wx-overcast .wx-c3 {
+  opacity: 0.9;
+}
+/* 雨 / 雷雨：太阳收起、云变深灰 */
+.wx-rain .wx-sun,
+.wx-storm .wx-sun {
+  opacity: 0;
+}
+.wx-rain .wx-cloud,
+.wx-storm .wx-cloud {
+  background: #c7d1de;
+  box-shadow: 0 3px 8px rgba(20, 30, 45, 0.28);
+}
+.wx-storm .wx-cloud {
+  background: #aab6c6;
+}
+/* 雨滴容器单独命名，避免和「雨」状态类 .wx-rain 撞名 */
+.wx-drops {
+  position: absolute;
+  left: 14px;
+  top: 44px;
+  width: 48px;
+  height: 22px;
+  overflow: hidden;
+  z-index: 3;
+}
+.wx-drops i {
+  position: absolute;
+  top: -6px;
+  width: 2px;
+  height: 9px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.95));
+  animation: wx-drop 1.15s linear infinite;
+}
+.wx-drops i:nth-child(1) {
+  left: 3px;
+  animation-delay: 0s;
+}
+.wx-drops i:nth-child(2) {
+  left: 13px;
+  animation-delay: 0.22s;
+}
+.wx-drops i:nth-child(3) {
+  left: 23px;
+  animation-delay: 0.44s;
+}
+.wx-drops i:nth-child(4) {
+  left: 33px;
+  animation-delay: 0.66s;
+}
+.wx-drops i:nth-child(5) {
+  left: 42px;
+  animation-delay: 0.88s;
+}
+.wx-bolt {
+  z-index: 4;
+}
+.wx-bolt {
+  position: absolute;
+  left: 38px;
+  top: 33px;
+  width: 14px;
+  height: 24px;
+  background: linear-gradient(180deg, #fffde7, #ffe066);
+  clip-path: polygon(60% 0, 8% 56%, 44% 56%, 30% 100%, 92% 40%, 54% 40%);
+  filter: drop-shadow(0 0 6px rgba(255, 230, 120, 0.95));
+  animation: wx-flash 3.6s ease-in-out infinite;
+  z-index: 4;
+}
+.weather-bar.storm {
+  background: linear-gradient(135deg, #4b5563, #2d3748);
+}
+
+@keyframes wx-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.07);
+    filter: brightness(1.12);
+  }
+}
+@keyframes wx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes wx-drift {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(7px);
+  }
+}
+@keyframes wx-drop {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translateY(24px);
+    opacity: 0.15;
+  }
+}
+/* 闪电常驻可见，周期性闪两下 */
+@keyframes wx-flash {
+  0%,
+  64%,
+  100% {
+    opacity: 0.8;
+    filter: drop-shadow(0 0 4px rgba(255, 230, 120, 0.55));
+  }
+  68% {
+    opacity: 1;
+    filter: drop-shadow(0 0 14px rgba(255, 255, 210, 1));
+  }
+  72% {
+    opacity: 0.4;
+  }
+  76% {
+    opacity: 1;
+    filter: drop-shadow(0 0 14px rgba(255, 255, 210, 1));
+  }
+  82% {
+    opacity: 0.8;
+  }
+}
+
 /* 天气栏里的大盘点位：点击看全球指数 */
 .idx-btn {
   appearance: none;
@@ -482,9 +739,15 @@ textarea.input {
 .chicken-card .name {
   font-weight: 700;
   font-size: 14px;
-  white-space: nowrap;
+  line-height: 1.3;
+  /* 基金名通常很长：允许两行，仍然保留省略号 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  min-height: 2.6em;
+  word-break: break-word;
 }
 .chicken-card .sub {
   font-size: 12px;
@@ -599,6 +862,252 @@ textarea.input {
 }
 .bar-row b.warn {
   color: #b07a00;
+}
+
+/* 基金健康指标：两列，收益共用一把尺子，风险用区间条 */
+.metric-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #e8e2d4;
+}
+.m-profile {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.m-profile b {
+  color: var(--ink);
+  font-weight: 700;
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 22px;
+}
+/* 左：区间涨跌（收窄），右：关键指标 */
+.health-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 28px;
+}
+.health-col {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .health-cols {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+/* 周期涨跌：单列整行，条形尽量长 */
+.m-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.m-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.m-row .m-label {
+  flex: 0 0 52px;
+}
+.m-row .m-bar {
+  flex: 1;
+  margin-top: 0;
+  min-width: 0;
+}
+.m-row b {
+  flex: 0 0 64px;
+  text-align: right;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.m-row b.up {
+  color: var(--up);
+}
+.m-row b.down {
+  color: var(--down);
+}
+/* 纯数值行：标签 + 点线引导 + 数值 */
+.m-row.plain .m-dots {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  margin-bottom: 4px;
+  border-bottom: 1px dotted #ded6c3;
+}
+.m-row.plain b {
+  flex: 0 0 auto;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 分组小标题 */
+.m-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 2px 0 8px;
+}
+.m-sub + .metric-grid,
+.m-sub + .m-rows {
+  margin-bottom: 14px;
+}
+.m-sub-tip {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+.m-cell {
+  min-width: 0;
+}
+.m-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.m-label {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.m-top b {
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.m-top b.up {
+  color: var(--up);
+}
+.m-top b.down {
+  color: var(--down);
+}
+.m-top b.risk-warn {
+  color: #b07a00;
+}
+.m-top b.risk-danger {
+  color: #c8321f;
+}
+/* 双向收益条：中线（0）加粗刻度 + 25% 处淡刻度，涨红跌绿 */
+.m-bar {
+  position: relative;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background-color: #f2eee3;
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(120, 106, 78, 0.13) 0 1px,
+    transparent 1px 25%
+  );
+  overflow: hidden;
+}
+.m-bar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #b3a88d;
+}
+.m-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.m-fill.up {
+  background: var(--up);
+}
+.m-fill.down {
+  background: var(--down);
+}
+.m-fill.flat {
+  background: #c9c1ae;
+}
+/* 风险区间条：绿(安全) / 黄(警戒) / 红(危险) + 游标 */
+.m-track {
+  position: relative;
+  display: flex;
+  height: 8px;
+  margin-top: 7px;
+}
+.m-track .zone {
+  height: 100%;
+}
+.m-track .zone:first-child {
+  border-radius: 999px 0 0 999px;
+}
+.m-track .zone:last-child {
+  border-radius: 0 999px 999px 0;
+}
+.m-track .zone.ok {
+  background: #d8ecdc;
+}
+.m-track .zone.warn {
+  background: #fbeac2;
+}
+.m-track .zone.danger {
+  background: #f6d6d2;
+}
+.m-pin {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 3px;
+  background: var(--ink);
+  box-shadow: 0 0 0 1.5px #fff;
+}
+/* 风险等级：5 格刻度，整条同色 */
+.risk-scale {
+  display: flex;
+  gap: 3px;
+  margin-top: 7px;
+}
+.risk-scale i {
+  flex: 1;
+  height: 8px;
+  border-radius: 3px;
+  background: #f2eee3;
+}
+.risk-scale i.on {
+  background: #4f9d69;
+}
+.risk-scale.lv3 i.on {
+  background: #e0a800;
+}
+.risk-scale.lv4 i.on {
+  background: #e07b39;
+}
+.risk-scale.lv5 i.on {
+  background: #c8321f;
+}
+.m-legend {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+@media (max-width: 480px) {
+  .metric-grid {
+    gap: 11px 14px;
+  }
+  .m-top {
+    font-size: 12px;
+  }
+  .m-top b {
+    font-size: 13px;
+  }
 }
 
 /* ---------- 列表 ---------- */
@@ -1384,7 +1893,7 @@ textarea.input {
   }
   .app {
     padding-bottom: 0;
-    padding-left: 220px;
+    padding-left: 236px;
     display: flex;
     min-height: 100vh;
   }
@@ -1393,7 +1902,7 @@ textarea.input {
     left: 0;
     top: 0;
     bottom: 0;
-    width: 220px;
+    width: 236px;
     background: #fff;
     border-right: 1px solid var(--line);
     padding: 18px 14px;
@@ -1440,8 +1949,20 @@ textarea.input {
   }
   .content {
     flex: 1;
-    padding: 22px 26px 40px;
-    max-width: 980px;
+    min-width: 0;
+    padding: 24px 30px 44px;
+    max-width: 1240px;
+  }
+  .card {
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card.tight {
+    padding: 14px;
+  }
+  .card-title {
+    font-size: 16px;
+    margin-bottom: 12px;
   }
   .chicken-grid {
     grid-template-columns: repeat(3, 1fr);
@@ -1462,9 +1983,81 @@ textarea.input {
   }
   .pc-split {
     display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 16px;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 18px;
     align-items: start;
+  }
+  /* 鸡舍页的网格在左栏里，栏宽比整页小，列数要单独控 */
+  .pc-split .chicken-grid {
+    grid-template-columns: 1fr;
+  }
+  /* 详情页：左主栏 + 右信息栏 */
+  .detail-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 18px;
+    align-items: start;
+  }
+  /* 宽屏下别让卡片里的按钮被拉成整行 */
+  .rep-actions .btn {
+    flex: 0 0 auto;
+    min-width: 96px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .pc-split .chicken-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 更宽的桌面：内容区跟着放大，避免两侧大片留白 */
+@media (min-width: 1360px) {
+  .content {
+    max-width: 1440px;
+    padding: 26px 40px 52px;
+  }
+  .chicken-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .ach-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+  .pc-split {
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 20px;
+  }
+  .pc-split .chicken-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .detail-split {
+    grid-template-columns: minmax(0, 1fr) 440px;
+    gap: 20px;
+  }
+  .chicken-card .yard-bg {
+    height: 104px;
+  }
+  .modal {
+    max-width: 600px;
+  }
+}
+
+@media (min-width: 1700px) {
+  .content {
+    max-width: 1620px;
+    padding: 28px 48px 56px;
+  }
+  .chicken-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+  .ach-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  .pc-split {
+    grid-template-columns: minmax(0, 1fr) 420px;
+  }
+  .pc-split .chicken-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 
@@ -1542,6 +2135,146 @@ textarea.input {
   animation: ck-cloud 3.4s ease-in-out infinite;
 }
 
+/* ---------- 按收益体型区分的动作与神情 ---------- */
+/* 匀称：轻微呼吸起伏 */
+@keyframes ck-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-1.2px) scale(1.012);
+  }
+}
+/* 肥：欢快的小跳 */
+@keyframes ck-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  22% {
+    transform: translateY(-3.6px);
+  }
+  42% {
+    transform: translateY(0);
+  }
+  58% {
+    transform: translateY(-1.6px);
+  }
+  76% {
+    transform: translateY(0);
+  }
+}
+/* 瘦：无力地左右摇晃 */
+@keyframes ck-sway {
+  0%,
+  100% {
+    transform: rotate(-1.6deg) translateY(0.6px);
+  }
+  50% {
+    transform: rotate(1.6deg) translateY(-0.4px);
+  }
+}
+@keyframes ck-wobble {
+  0%,
+  100% {
+    transform: rotate(-0.7deg);
+  }
+  50% {
+    transform: rotate(0.7deg);
+  }
+}
+@keyframes ck-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes ck-sweat {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.9;
+  }
+  60% {
+    transform: translateY(2.4px);
+    opacity: 0.35;
+  }
+}
+@keyframes ck-sparkle {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+}
+
+.ck-anim.ck-normal,
+.ck-anim.ck-slim {
+  animation: ck-breathe 4.2s ease-in-out infinite;
+}
+.ck-anim.ck-plump,
+.ck-anim.ck-fat {
+  animation: ck-hop 2.8s ease-in-out infinite;
+}
+.ck-anim.ck-obese {
+  animation: ck-hop 2.1s ease-in-out infinite;
+}
+.ck-anim.ck-thin {
+  animation: ck-sway 4.8s ease-in-out infinite;
+}
+.ck-anim.ck-veryThin {
+  animation: ck-sway 6s ease-in-out infinite;
+}
+.ck-anim.ck-veryThin .ck-wing {
+  animation-duration: 4.6s;
+  opacity: 0.55;
+}
+.ck-anim.ck-thin .ck-wing {
+  animation-duration: 3.4s;
+  opacity: 0.7;
+}
+.ck-anim.ck-plump .ck-wing,
+.ck-anim.ck-fat .ck-wing,
+.ck-anim.ck-obese .ck-wing {
+  animation-duration: 1.1s;
+}
+/* 眨眼：每只眼睛独立组，按体型给不同频率 */
+.ck-eye {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+.ck-normal .ck-eye,
+.ck-slim .ck-eye {
+  animation: ck-blink 5.2s ease-in-out infinite;
+}
+.ck-plump .ck-eye,
+.ck-fat .ck-eye,
+.ck-obese .ck-eye {
+  animation: ck-blink 3.4s ease-in-out infinite;
+}
+.ck-thin .ck-eye,
+.ck-veryThin .ck-eye {
+  animation: ck-blink 8.5s ease-in-out infinite;
+}
+.ck-sweat {
+  transform-box: fill-box;
+  animation: ck-sweat 3.4s ease-in-out infinite;
+}
+.ck-sparkle {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: ck-sparkle 2.2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
@@ -1584,4 +2317,359 @@ textarea.input {
 }
 .chicken-card.watching .yard-bg {
   filter: grayscale(0.4);
+}
+
+/* ---------- 收益率 / 收益体型标签 ---------- */
+.profit-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.profit-line b {
+  font-size: 13px;
+}
+.build-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f3f0e6;
+  color: #8a8172;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.build-tag.down {
+  background: #fdecea;
+  color: #c0392b;
+}
+.build-tag.up {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+/* ---------- 基金类型图鉴 ---------- */
+.breed-row[role='button'] {
+  cursor: pointer;
+  border-radius: 12px;
+  padding-left: 6px;
+  padding-right: 6px;
+  transition: background 0.15s;
+}
+.breed-row[role='button']:hover {
+  background: #faf8f1;
+}
+.type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+.chip.mini {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #f6f3ea;
+  border: 1px solid transparent;
+  color: #8a8172;
+  cursor: default;
+}
+.chip-num {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+/* ---------- 类型图鉴：行内展开（替代弹窗） ---------- */
+.type-item {
+  border-bottom: 1px solid var(--line);
+}
+.type-item:last-child {
+  border-bottom: 0;
+}
+.type-item .type-head {
+  border-bottom: 0;
+}
+.type-item.open .type-head {
+  background: #faf8f1;
+}
+.type-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.type-toggle .chev {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+.type-item.open .type-toggle .chev {
+  transform: rotate(180deg);
+}
+.type-panel {
+  padding: 2px 8px 12px 68px;
+  background: #fdfcf7;
+  border-radius: 0 0 12px 12px;
+  animation: typePanelIn 0.18s ease;
+}
+@keyframes typePanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.type-sorts {
+  margin: 4px 0 6px;
+}
+.type-tip {
+  font-size: 12px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.type-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.type-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+@media (max-width: 720px) {
+  .type-panel {
+    padding-left: 8px;
+  }
+  .type-item .type-head {
+    flex-wrap: wrap;
+  }
+  .type-toggle {
+    margin-left: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .type-panel {
+    animation: none;
+  }
+  .type-toggle .chev {
+    transition: none;
+  }
+}
+
+/* ---------- 今日待办（可点击执行） ---------- */
+.todo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 11px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.todo-row:last-of-type {
+  margin-bottom: 0;
+}
+.todo-row:hover {
+  border-color: var(--green);
+  background: #fbfdf9;
+}
+.todo-row.done {
+  opacity: 0.62;
+}
+.todo-box {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: #f4f1e7;
+  color: #8a8172;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+.todo-row.done .todo-box {
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+.todo-main {
+  flex: 1;
+  min-width: 0;
+}
+.todo-main b {
+  display: block;
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+.todo-main small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.todo-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.todo-right small {
+  font-size: 11px;
+  color: var(--muted);
+}
+/* ---------- 数据导出按钮组（我的 → 数据） ---------- */
+.grid-3.export-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 560px) {
+  .grid-3.export-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* 鸡舍卡片：仓位占比行（数值列加宽，放得下 100.0%） */
+.bar-row.pos-row b {
+  width: 48px;
+}
+/* 鸡舍排序下拉 */
+.yard-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 10px;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.yard-sort select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  padding: 2px 22px 2px 9px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink);
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, #9a917f 50%), linear-gradient(135deg, #9a917f 50%, transparent 50%);
+  background-position: calc(100% - 11px) 9px, calc(100% - 7px) 9px;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.yard-sort select:focus {
+  outline: none;
+  border-color: var(--green);
+}
+@media (max-width: 520px) {
+  .card-title {
+    flex-wrap: wrap;
+  }
+  .yard-sort {
+    margin-right: 6px;
+  }
+}
+/* 持仓盈亏：金额（收益率）可能较长，允许换行但金额本身不断行 */
+.profit-line {
+  flex-wrap: wrap;
+  row-gap: 3px;
+}
+.profit-line b {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.chicken-card .sub b {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* ---------- 养基等级 ---------- */
+.level-card .lv-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.lv-emoji {
+  font-size: 30px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.lv-name {
+  font-weight: 800;
+  font-size: 16px;
+}
+.lv-rate {
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lv-rate.up {
+  color: var(--up);
+}
+.lv-rate.down {
+  color: var(--down);
+}
+.lv-bar {
+  margin-top: 10px;
+}
+.lv-bar > span:first-child {
+  flex: 0 0 auto;
+}
+.lv-bar b {
+  width: 42px;
+}
+.lv-note {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+.lv-ladder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e8e2d4;
+}
+.lv-step {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f6f3ea;
+  color: #9a917f;
+  white-space: nowrap;
+}
+.lv-step.on {
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(76, 175, 80, 0.3);
+}
+.lv-tag {
+  margin-left: 6px;
 }

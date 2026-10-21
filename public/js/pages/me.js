@@ -1,16 +1,102 @@
 import { Api } from '../api.js';
-import { esc, toast, modal, confirmBox, copyText, fmtDate } from '../util.js';
+import { esc, toast, modal, confirmBox, copyText, fmtDate, fmtAmount, pct, pctClass } from '../util.js';
 import { getState, setUser, refresh } from '../app.js';
 import { showAchievements } from './yard.js';
 
 let keys = [];
+let achievements = { items: [], unlocked: 0, total: 0 };
 
 export async function render() {
   const s = getState();
   const u = s.user || {};
   const st = s.settings || {};
-  const k = await Api.keys();
+  const [k, ach, lv] = await Promise.all([
+    Api.keys(),
+    Api.achievements().catch(() => ({ items: [], unlocked: 0, total: 0 })),
+    Api.level().catch(() => null),
+  ]);
   keys = k.items || [];
+  achievements = ach || { items: [], unlocked: 0, total: 0 };
+  const lvl = lv && lv.level ? lv.level : null;
+  const tiers = (lv && lv.tiers) || [];
+
+  const unlockedList = (achievements.items || [])
+    .filter((a) => a.unlocked)
+    .sort((a, b) => String(b.unlockedAt || '').localeCompare(String(a.unlockedAt || '')));
+  // 服务端存的是 UTC ISO，这里换算成本地自然日判断「今日解锁」
+  const localDay = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  const todayStr = localDay(new Date().toISOString());
+  const achCard = `
+    <div class="card">
+      <div class="card-title">🏅 我的成就<span class="spacer"></span>
+        <span class="muted" style="font-weight:400;font-size:12px">已解锁 ${achievements.unlocked || 0} / ${
+    achievements.total || 0
+  }</span></div>
+      ${
+        unlockedList.length
+          ? `<div class="ach-grid">${unlockedList
+              .slice(0, 6)
+              .map(
+                (a) => `<div class="ach">
+                  <div class="medal">🏅</div>
+                  <div class="t">${esc(a.name)}${localDay(a.unlockedAt) === todayStr ? ' <span class="tag">今日</span>' : ''}</div>
+                  <div class="d">${esc(a.desc)}</div>
+                  ${a.unlockedAt ? `<div class="muted" style="font-size:11px;margin-top:4px">${esc(fmtDate(a.unlockedAt))} 解锁</div>` : ''}
+                </div>`
+              )
+              .join('')}</div>
+             ${
+               unlockedList.length > 6
+                 ? `<div class="muted" style="font-size:12px;margin-top:8px">还有 ${unlockedList.length - 6} 个成就已解锁，去成就墙看全部</div>`
+                 : ''
+             }`
+          : `<div class="empty" style="padding:14px">还没有解锁成就<br/>养鸡、写心得、传报告都能解锁，饲料也会一起到账</div>`
+      }
+      <button class="btn ghost block" data-act="ach-wall" style="margin-top:10px">成就墙（含未解锁进度）</button>
+    </div>
+  `;
+
+  /* ---------- 养基等级：按持仓累计收益率定级 ---------- */
+  const levelCard = `
+    <div class="card level-card">
+      <div class="card-title">🎖 养基等级<span class="spacer"></span>
+        <span class="muted" style="font-weight:400;font-size:12px">按持仓累计收益率</span></div>
+      ${
+        lvl
+          ? `<div class="lv-head">
+              <div class="lv-emoji">${lvl.emoji}</div>
+              <div style="flex:1;min-width:0">
+                <div class="lv-name">${esc(lvl.name)}
+                  <span class="muted" style="font-weight:400;font-size:12px">Lv.${lvl.level}/${lvl.total}</span></div>
+                <div class="muted" style="font-size:12px">${esc(lvl.desc)}</div>
+              </div>
+              <div class="lv-rate ${pctClass(lvl.profitRate)}">${pct(lvl.profitRate, 1)}</div>
+            </div>
+            <div class="bar-row lv-bar"><span>进度</span>
+              <span class="bar"><span style="width:${lvl.progress}%"></span></span>
+              <b>${lvl.progress}%</b></div>
+            <div class="muted lv-note">${
+              lvl.next
+                ? `距离「${esc(lvl.next.name)}」还差 ${lvl.next.need.toFixed(1)} 个百分点`
+                : '已经是最高等级，稳住就是胜利'
+            }</div>
+            <div class="muted lv-note">
+              持仓 ${lv.positions} 只${lv.priced < lv.positions ? `（${lv.positions - lv.priced} 只暂无净值）` : ''} ·
+              成本 ${fmtAmount(lv.cost, st, 0)} · 市值 ${fmtAmount(lv.marketValue, st, 0)} ·
+              盈亏 <b class="${pctClass(lv.profitRate)}">${fmtAmount(lv.profit, st, 0)}</b>
+            </div>
+            <div class="lv-ladder">${tiers
+              .map((t) => `<span class="lv-step ${t.key === lvl.key ? 'on' : ''}">${t.emoji} ${esc(t.name)}</span>`)
+              .join('')}</div>`
+          : `<div class="empty" style="padding:12px">还没有建仓<br/>在「自选」里填好成本价与份额，就会按收益率评级</div>`
+      }
+    </div>`;
 
   return `
     <div class="card">
@@ -19,7 +105,7 @@ export async function render() {
         <div style="flex:1">
           <div style="font-weight:800;font-size:17px">${esc(u.nickname || '农场主')}${
     u.isAdmin ? '<span class="tag">管理员</span>' : ''
-  }</div>
+  }${lvl ? `<span class="tag lv-tag">${lvl.emoji} ${esc(lvl.name)}</span>` : ''}</div>
           <div class="muted" style="font-size:13px">
             ${u.anonymous ? '游客模式（数据已保存在本机浏览器会话）' : esc(u.username || '')}
             · 加入于 ${esc(fmtDate(u.createdAt))}
@@ -33,6 +119,10 @@ export async function render() {
       </div>
       <button class="btn block" data-act="checkin" style="margin-top:12px">🌾 每日签到（+5 饲料）</button>
     </div>
+
+    ${levelCard}
+
+    ${achCard}
 
     <div class="card">
       <div class="card-title">⚙️ 偏好设置</div>
@@ -88,12 +178,13 @@ export async function render() {
 
     <div class="card">
       <div class="card-title">📦 数据</div>
-      <div class="grid-2">
+      <div class="grid-3 export-grid">
         <button class="btn ghost small" data-act="export-json">导出全部（JSON）</button>
         <button class="btn ghost small" data-act="export-csv">导出自选（CSV）</button>
+        <button class="btn ghost small" data-act="export-holdings">导出持仓（CSV）</button>
       </div>
       <div class="muted" style="font-size:12px;margin-top:8px">
-        自选、分组、报告与成就保存在服务端数据库，每日自动备份。
+        自选、分组、报告与成就保存在服务端数据库，每日自动备份。持仓明细含最新净值、市值、浮动盈亏与收益率，可直接用 Excel 打开。
       </div>
     </div>
 
@@ -138,6 +229,12 @@ export async function mount(r) {
       toast(e.message === 'already_checked' ? '今天已经签到过了，明天再来' : '签到失败');
     }
   };
+
+  const achWall = r.querySelector('[data-act="ach-wall"]');
+  if (achWall)
+    achWall.onclick = () => {
+      location.hash = '#/discover';
+    };
 
   r.querySelectorAll('[data-set]').forEach((el) => {
     el.onchange = async () => {
@@ -269,6 +366,9 @@ export async function mount(r) {
   };
   r.querySelector('[data-act="export-csv"]').onclick = () => {
     window.open('api/v1/me/export?format=csv', '_blank');
+  };
+  r.querySelector('[data-act="export-holdings"]').onclick = () => {
+    window.open('api/v1/me/export?format=holdings', '_blank');
   };
 
   r.querySelector('[data-act="logout"]').onclick = () => {

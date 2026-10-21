@@ -101,6 +101,14 @@ async function buildAdoptions(userId) {
     const ftype = r.fund_type || null;
     const category = pickText(r.fund_category) || pickText(catMap[r.fund_code]?.category);
 
+    // 老数据里昵称被领养弹窗截断成 12 个字（如「易方达中债7-10年期国」），
+    // 这类值正好是基金名的前缀，识别出来后直接用完整基金名并顺手修库
+    let displayNick = r.nickname || fundName;
+    if (r.nickname && r.nickname.length >= 12 && fundName !== r.nickname && fundName.startsWith(r.nickname)) {
+      displayNick = fundName;
+      db.prepare('UPDATE adoptions SET nickname = ? WHERE id = ?').run(fundName, r.id);
+    }
+
     items.push({
       adoptionId: r.id,
       fundCode: r.fund_code,
@@ -110,7 +118,8 @@ async function buildAdoptions(userId) {
       indexName: pickText(r.fund_index_name) || pickText(catMap[r.fund_code]?.indexName),
       company: r.company || null,
       manager: r.manager || null,
-      nickname: r.nickname || fundName,
+      nickname: displayNick,
+      fundName,
       groupId: r.group_id,
       groupName: r.group_name || '未分组',
       costPrice: r.cost_price,
@@ -136,7 +145,7 @@ async function buildAdoptions(userId) {
       profit: profit === null ? null : round(profit, 2),
       profitRate: profitRate === null ? null : round(profitRate, 2),
       todayPct: typeof pct === 'number' ? round(pct, 2) : null,
-      chicken: c ? chickenEngine.publicChicken(c, r.fund_code) : null,
+      chicken: c ? chickenEngine.publicChicken(c, r.fund_code, profitRate) : null,
     });
   }
   return { items, profitRates };

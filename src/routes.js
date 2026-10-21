@@ -13,6 +13,7 @@ const yardEngine = require('./engine/yard');
 const chickenEngine = require('./engine/chicken');
 const achEngine = require('./engine/achievements');
 const tasks = require('./engine/tasks');
+const levelEngine = require('./engine/level');
 const { id: gid, today, nowISO, daysBetween, round } = require('./util');
 
 const router = express.Router();
@@ -87,6 +88,45 @@ router.get('/breeds', (req, res) => {
     colors: { body: b.color, accent: b.accent },
   }));
   res.json({ breeds: list, levels: chickenEngine.LEVELS });
+});
+
+/**
+ * 基金类型图鉴：品种 ↔ 真实基金类型（东财 FTYPE 大类），带各类当前基金数量。
+ * ft 可直接传给 /explore 做分类查询。
+ */
+router.get('/fund-types', async (req, res) => {
+  const counts = {};
+  try {
+    const r = await quote.explore({ type: 'all', size: 10 });
+    Object.assign(counts, r.counts || {});
+  } catch (err) {
+    /* 数量拿不到不影响图鉴 */
+  }
+  try {
+    const m = await quote.explore({ type: 'hb', size: 10 });
+    counts.hb = m.total || counts.hb || null;
+  } catch (err) {
+    /* 同上 */
+  }
+
+  const types = Object.entries(chickenEngine.FUND_TYPES).map(([key, t]) => {
+    const b = chickenEngine.breedInfo(key);
+    return {
+      key,
+      ft: t.ft,
+      name: t.name,
+      categories: t.categories,
+      // other 指向「全部基金」，数量没有意义，不给数字
+      count: key === 'other' ? null : counts[t.ft] || null,
+      breed: { key: b.key, name: b.name, desc: b.desc, colors: { body: b.color, accent: b.accent } },
+    };
+  });
+  types.sort((a, b) => {
+    if (a.key === 'other') return 1;
+    if (b.key === 'other') return -1;
+    return (b.count || 0) - (a.count || 0);
+  });
+  res.json({ ok: true, types, updatedAt: nowISO() });
 });
 
 router.get('/tips', (req, res) => {
@@ -206,41 +246,8 @@ router.get('/yard', auth.requireAuth, async (req, res) => {
   }
 });
 
-/** 全场动作冷却（打扫 6h / 音乐 4h）：避免无意义的连点，让每次照料都要做选择 */
-const YARD_COOLDOWN = { clean: 6 * 3600 * 1000, music: 4 * 3600 * 1000 };
-
-function yardCooldownLeft(userId, action) {
-  const prefix = action === 'clean' ? '打扫了鸡舍%' : '给鸡舍放了音乐%';
-  const row = db
-    .prepare(
-      `SELECT created_at FROM diary WHERE user_id = ? AND type = 'care' AND text LIKE ?
-       ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(userId, prefix);
-  if (!row) return 0;
-  const left = YARD_COOLDOWN[action] - (Date.now() - Date.parse(row.created_at));
-  return left > 0 ? Math.ceil(left / 60000) : 0;
-}
-
-router.post('/yard/clean', auth.requireAuth, (req, res) => {
-  // 打扫前必须先照料好所有饿了 / 打蔫的鸡：打扫是对鸡舍负责，而不是点一下
-  const pending = chickenEngine.careNeeded(req.user.id);
-  if (pending.length) return res.status(409).json({ error: 'need_care', items: pending });
-  const leftMin = yardCooldownLeft(req.user.id, 'clean');
-  if (leftMin) return res.status(429).json({ error: 'cooldown', leftMin });
-  const r = chickenEngine.yardAction(req.user.id, 'clean');
-  tasks.bump(req.user.id, 'clean_yard', 1);
-  diary(req.user.id, 'care', `打扫了鸡舍，全体鸡健康 +8（${r.affected} 只）`);
-  res.json({ ok: true, ...r });
-});
-
-router.post('/yard/music', auth.requireAuth, (req, res) => {
-  const leftMin = yardCooldownLeft(req.user.id, 'music');
-  if (leftMin) return res.status(429).json({ error: 'cooldown', leftMin });
-  const r = chickenEngine.yardAction(req.user.id, 'music');
-  diary(req.user.id, 'care', `给鸡舍放了音乐，全体心情 +10（${r.affected} 只）`);
-  res.json({ ok: true, ...r });
-});
+// 注：纯点击的「打扫 / 放音乐」已下线——它们不产生任何信息，只是刷数字。
+// 现在鸡舍只保留带真实动作的照料：喂食（附报告或心得）、安抚（写心态笔记）、加餐喂全场。
 
 router.post('/yard/feed-all', auth.requireAuth, (req, res) => {
   const user = db.prepare('SELECT feed FROM users WHERE id = ?').get(req.user.id);
@@ -652,7 +659,7 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
       profit: profit === null ? null : round(profit, 2),
       profitRate: profitRate === null ? null : round(profitRate, 2),
     },
-    chicken: c ? chickenEngine.publicChicken(c, code) : null,
+    chicken: c ? chickenEngine.publicChicken(c, code, profitRate) : null,
     trades,
     reports,
     notes: db
@@ -1054,6 +1061,8 @@ function createReportHandler(resolveFundCode) {
 
       diary(req.user.id, 'report', `上传了报告《${title}》`, null);
       tasks.bump(req.user.id, 'read_report', 1);
+      // 待办「传一份研报」要求挂到具体持仓基金上
+      if (fundCode) tasks.bump(req.user.id, 'report_1', 1);
       const achs = achEngine.check(req.user.id, {});
 
       const report = publicReport(db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId));
@@ -1421,6 +1430,42 @@ router.delete('/me/keys/:id', auth.requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * 养基等级：按「已建仓持仓」的累计收益率定级（不看成长值 / 陪伴时长）。
+ * 净值取本地 nav_history，避免每次打开「我的」都打第三方接口。
+ */
+router.get('/me/level', auth.requireAuth, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT fund_code, cost_price, shares FROM adoptions
+       WHERE user_id = ? AND released_at IS NULL AND cost_price > 0 AND shares > 0`
+    )
+    .all(req.user.id);
+  let cost = 0;
+  let value = 0;
+  let priced = 0;
+  for (const r of rows) {
+    const nav = quote.latestLocalNav(r.fund_code);
+    if (!nav || !nav.nav) continue;
+    cost += Number(r.cost_price) * Number(r.shares);
+    value += Number(nav.nav) * Number(r.shares);
+    priced++;
+  }
+  const profit = priced && cost ? value - cost : null;
+  const profitRate = cost ? (profit / cost) * 100 : null;
+  res.json({
+    ok: true,
+    positions: rows.length,
+    priced,
+    cost: round(cost, 2),
+    marketValue: round(value, 2),
+    profit: profit === null ? null : round(profit, 2),
+    profitRate: profitRate === null ? null : round(profitRate, 2),
+    level: levelEngine.levelOf(profitRate),
+    tiers: levelEngine.TIERS.map((t) => ({ key: t.key, name: t.name, emoji: t.emoji, min: t.min, max: t.max })),
+  });
+});
+
 router.get('/me/export', auth.requireAuth, (req, res) => {
   const adoptions = db
     .prepare('SELECT * FROM adoptions WHERE user_id = ? AND released_at IS NULL')
@@ -1431,19 +1476,87 @@ router.get('/me/export', auth.requireAuth, (req, res) => {
     .all(req.user.id);
   const achs = db.prepare('SELECT code, unlocked_at FROM user_achievements WHERE user_id = ?').all(req.user.id);
 
+  const gmap = new Map(groups.map((g) => [g.id, g.name]));
+  const csvCell = (v) => `"${String(v === null || v === undefined ? '' : v).replace(/"/g, '""')}"`;
+  const round2 = (v) => (v === null || v === undefined || !isFinite(v) ? '' : Math.round(v * 100) / 100);
+
   if (req.query.format === 'csv') {
     const header = '基金代码,昵称,分组,成本价,份额,首次买入,领养时间\n';
-    const gmap = new Map(groups.map((g) => [g.id, g.name]));
     const body = adoptions
       .map((a) =>
         [a.fund_code, a.nickname || '', gmap.get(a.group_id) || '', a.cost_price ?? '', a.shares ?? '', a.first_buy_date || '', a.adopted_at]
-          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+          .map(csvCell)
           .join(',')
       )
       .join('\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="fundfarm.csv"');
     return res.send('\uFEFF' + header + body);
+  }
+
+  /**
+   * 持仓明细 CSV：带最新净值、市值、浮动盈亏、收益率、今日涨跌、持有天数，
+   * 可直接丢进 Excel 做二次分析（净值取本地 nav_history，不依赖第三方接口实时可用）。
+   */
+  if (req.query.format === 'holdings') {
+    const fundRows = db.prepare('SELECT code, name, category, type FROM funds').all();
+    const fundMap = new Map(fundRows.map((f) => [f.code, f]));
+    const navStmt = db.prepare('SELECT date, nav FROM nav_history WHERE code = ? ORDER BY date DESC LIMIT 2');
+    const header = [
+      '基金代码',
+      '基金名称',
+      '昵称',
+      '分类',
+      '分组',
+      '成本价',
+      '份额',
+      '成本金额',
+      '最新净值',
+      '净值日期',
+      '持仓市值',
+      '浮动盈亏',
+      '收益率(%)',
+      '今日涨跌(%)',
+      '持有天数',
+      '建仓日',
+    ].join(',');
+    const lines = adoptions.map((a) => {
+      const f = fundMap.get(a.fund_code) || {};
+      const navs = navStmt.all(a.fund_code);
+      const nav = navs[0] ? Number(navs[0].nav) : null;
+      const prev = navs[1] ? Number(navs[1].nav) : null;
+      const dayPct = nav && prev ? ((nav - prev) / prev) * 100 : null;
+      const shares = a.shares ? Number(a.shares) : null;
+      const cost = a.cost_price && shares ? Number(a.cost_price) * shares : null;
+      const mv = nav && shares ? nav * shares : null;
+      const profit = cost !== null && mv !== null ? mv - cost : null;
+      const rate = cost ? (profit / cost) * 100 : null;
+      const start = a.first_buy_date || (a.adopted_at || '').slice(0, 10);
+      const days = start ? Math.max(0, Math.round((Date.now() - Date.parse(start)) / 864e5)) : '';
+      return [
+        a.fund_code,
+        f.name || '',
+        a.nickname || '',
+        f.category || f.type || '',
+        gmap.get(a.group_id) || '',
+        a.cost_price ?? '',
+        a.shares ?? '',
+        round2(cost),
+        nav ?? '',
+        navs[0] ? navs[0].date : '',
+        round2(mv),
+        round2(profit),
+        round2(rate),
+        round2(dayPct),
+        days,
+        start,
+      ]
+        .map(csvCell)
+        .join(',');
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="fundfarm-holdings-${today()}.csv"`);
+    return res.send('\uFEFF' + header + '\n' + lines.join('\n'));
   }
 
   res.json({ exportedAt: nowISO(), adoptions, groups, reports, achievements: achs });
