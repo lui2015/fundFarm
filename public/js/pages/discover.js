@@ -137,6 +137,38 @@ function initTypeItem(item, type, closeOthers) {
   return { item, setOpen };
 }
 
+/**
+ * 把同站的其他小工具（求一基等）以「全屏浮层 + iframe」的方式嵌进来，
+ * 不跳出养基场，也保留「新窗口打开」作为兜底入口。
+ */
+function embedExternal(url, title) {
+  const mask = document.createElement('div');
+  mask.className = 'embed-mask';
+  mask.innerHTML = `
+    <div class="embed-panel">
+      <div class="embed-head">
+        <b>${esc(title)}</b>
+        <span class="spacer"></span>
+        <a class="btn ghost small" href="${esc(url)}" target="_blank" rel="noopener">新窗口打开</a>
+        <button class="btn ghost small" data-embed-close>关闭</button>
+      </div>
+      <iframe class="embed-frame" src="${esc(url)}" title="${esc(title)}" loading="lazy"></iframe>
+    </div>`;
+  document.body.appendChild(mask);
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    mask.remove();
+  };
+  mask.querySelector('[data-embed-close]').onclick = close;
+  mask.addEventListener('click', (e) => {
+    if (e.target === mask) close();
+  });
+  document.addEventListener('keydown', onKey);
+}
+
 export async function render() {
   const [achs, tips, fundTypes] = await Promise.all([
     Api.achievements(),
@@ -205,7 +237,9 @@ export async function render() {
 
   return `
     <div class="card">
-      <div class="card-title">🐔 基金类型图鉴<span class="spacer"></span>
+      <div class="card-title">🐔 基金类型图鉴
+        <button class="btn ghost small" data-act="embed-qr" title="求一基：随机抽取一只基金看看">🎲 求一基</button>
+        <span class="spacer"></span>
         <span class="muted" style="font-weight:400;font-size:12px">按基金类型自动匹配鸡品种</span></div>
       ${typeRows || '<div class="empty" style="padding:16px">类型数据暂时取不到，稍后再试</div>'}
       <div class="muted" style="font-size:12px;margin-top:8px;line-height:1.6">
@@ -227,6 +261,10 @@ export async function render() {
 }
 
 export async function mount(r) {
+  const qrBtn = r.querySelector('[data-act="embed-qr"]');
+  if (qrBtn)
+    qrBtn.onclick = () => embedExternal('https://www.luliming.xyz/fundRecommend/', '🎲 求一基 · 随机基金推荐');
+
   r.querySelectorAll('.ach').forEach((el) => {
     el.onclick = () => {
       if (el.classList.contains('locked')) toast('还没解锁，继续养鸡吧');

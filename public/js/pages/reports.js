@@ -115,16 +115,17 @@ export async function render() {
 function reportCard(r) {
   const typeTag =
     { html: 'HTML', markdown: 'Markdown', text: '文本', file: '文件' }[r.contentType || ''] || '';
-  const linkLabel = r.fundCode
-    ? `<a href="#/fund/${esc(r.fundCode)}" data-jump="${esc(r.fundCode)}">${esc(r.fundName || r.fundCode)}</a>
-       ${r.adopted ? '' : '<span class="tag">未领养</span>'}
-       <span class="muted">${esc(r.fundCode)}</span>`
-    : '<span class="muted">未关联基金</span>';
+  // 已关联的基金单独做成右下角的胶囊，一眼能看到挂在哪只基金上
+  const linkChip = r.fundCode
+    ? `<a class="link-chip" href="#/fund/${esc(r.fundCode)}" data-jump="${esc(r.fundCode)}" title="打开基金详情">
+         🔗 ${esc(r.fundName || r.fundCode)}<span class="code">${esc(r.fundCode)}</span>
+       </a>${r.adopted ? '' : '<span class="tag">未领养</span>'}`
+    : '<span class="link-chip none">未关联基金</span>';
   const excerpt = reportExcerpt(r, 140);
   return `<div class="report-item" data-id="${esc(r.id)}">
     <div class="ri-title">${esc(r.title)}</div>
     <div class="muted" style="font-size:12px;margin-top:2px">
-      ${linkLabel} · ${esc(fmtDate(r.reportDate))}${typeTag ? ' · <span class="tag">' + typeTag + '</span>' : ''}${
+      ${esc(fmtDate(r.reportDate))}${typeTag ? ' · <span class="tag">' + typeTag + '</span>' : ''}${
     r.fileName ? ' · ' + esc(r.fileName) : ''
   }
     </div>
@@ -144,6 +145,7 @@ function reportCard(r) {
       }
       <button class="btn ghost small" data-link="${esc(r.id)}">${r.fundCode ? '更换关联' : '关联基金'}</button>
       <button class="btn ghost small" data-del="${esc(r.id)}">删除</button>
+      ${linkChip}
     </div>
   </div>`;
 }
