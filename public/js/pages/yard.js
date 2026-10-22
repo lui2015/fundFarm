@@ -212,8 +212,9 @@ export async function render() {
     <div class="card">
       <div class="card-title">今日概况<span class="spacer"></span>${levelChip}
         <span class="muted" style="font-weight:400;font-size:12px">${data.date}</span></div>
-      <div class="grid-3">
+      <div class="grid-4">
         <div class="stat"><div class="v ${pctClass(sum.todayPct)}" data-live-summary="todayPct">${sum.todayPct === null ? '--' : pct(sum.todayPct)}</div><div class="k">今日估算</div></div>
+        <div class="stat"><div class="v ${pctClass(sum.todayProfit)}" data-live-summary="todayProfit">${sum.todayProfit === null || sum.todayProfit === undefined ? '--' : fmtAmount(sum.todayProfit, s.settings, 0)}</div><div class="k">今日盈亏</div></div>
         <div class="stat"><div class="v" data-live-summary="marketValue">${hasHolding ? fmtAmount(sum.marketValue, s.settings, 0) : '--'}</div><div class="k">持仓市值</div></div>
         <div class="stat"><div class="v ${pctClass(sum.profit)}" data-live-summary="profit">${sum.profit === null ? '--' : fmtAmount(sum.profit, s.settings, 0)}</div><div class="k">累计盈亏</div></div>
       </div>

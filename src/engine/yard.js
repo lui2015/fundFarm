@@ -156,6 +156,8 @@ function summarize(items) {
   let value = 0;
   let weightedPct = 0;
   let weightSum = 0;
+  let todayProfit = 0;
+  let todayProfitSummed = 0;
   let up = 0;
   let down = 0;
   let flat = 0;
@@ -171,6 +173,11 @@ function summarize(items) {
       if (it.todayPct > 0) up++;
       else if (it.todayPct < 0) down++;
       else flat++;
+      // 今日盈亏金额：当前市值 - 按当日涨跌幅反推的昨日市值
+      if (typeof it.marketValue === 'number' && it.marketValue > 0 && it.todayPct > -100) {
+        todayProfit += it.marketValue - it.marketValue / (1 + it.todayPct / 100);
+        todayProfitSummed++;
+      }
     }
   }
   const profit = value && cost ? value - cost : null;
@@ -180,6 +187,8 @@ function summarize(items) {
     profit: profit === null ? null : round(profit, 2),
     profitRate: profit === null || !cost ? null : round((profit / cost) * 100, 2),
     todayPct: weightSum ? round(weightedPct / weightSum, 2) : null,
+    // 今日盈亏金额：没有可用市值 / 涨跌幅时返回 null，前端显示 --
+    todayProfit: todayProfitSummed ? round(todayProfit, 2) : null,
     up,
     down,
     flat,

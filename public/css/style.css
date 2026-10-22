@@ -140,6 +140,21 @@ a {
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+/* 今日概况四宫格：窄屏改 2×2，避免数字挤成一团 */
+@media (max-width: 480px) {
+  .grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 10px;
+  }
+  .grid-4 .stat .v {
+    font-size: 17px;
+  }
+}
 
 /* ---------- 底部导航 ---------- */
 .nav {

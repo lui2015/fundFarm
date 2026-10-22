@@ -55,6 +55,10 @@ function updateSummary(data) {
         el.textContent = s.profit === null || s.profit === undefined ? '--' : fmtAmount(s.profit, st, 0);
         applyClass(el, s.profit);
         break;
+      case 'todayProfit':
+        el.textContent = s.todayProfit === null || s.todayProfit === undefined ? '--' : fmtAmount(s.todayProfit, st, 0);
+        applyClass(el, s.todayProfit);
+        break;
       case 'updown':
         el.textContent = s.total ? `${s.up} 涨 ${s.down} 跌` : '空空如也';
         break;
