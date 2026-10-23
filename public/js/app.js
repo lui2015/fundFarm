@@ -20,10 +20,10 @@ export function setUser(u) {
   state.settings = (u && u.settings) || {};
 }
 
+// 报告库不再占导航位：入口在鸡舍右栏「分析报告 → 查看全部」
 const NAV = [
   { key: 'yard', hash: '#/yard', icon: '🏠', label: '鸡舍' },
   { key: 'funds', hash: '#/funds', icon: '📋', label: '自选' },
-  { key: 'reports', hash: '#/reports', icon: '📄', label: '报告' },
   { key: 'discover', hash: '#/discover', icon: '🏅', label: '发现' },
   { key: 'me', hash: '#/me', icon: '🙋', label: '我的' },
 ];
@@ -40,7 +40,8 @@ function parseHash() {
 
 function navKey(name) {
   if (name === 'fund') return 'funds';
-  if (name === 'report') return 'reports';
+  // 报告库 / 报告详情都是鸡舍下的子页面，导航高亮回鸡舍
+  if (name === 'reports' || name === 'report') return 'yard';
   return name;
 }
 

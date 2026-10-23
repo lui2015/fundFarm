@@ -86,6 +86,10 @@ export async function render() {
 
   return `
     <div class="card tight">
+      <div class="report-head">
+        <button class="btn ghost small" data-back-yard>← 鸡舍</button>
+        <span class="spacer"></span>
+      </div>
       <div class="search-row" style="margin-bottom:8px">
         <div class="ac-wrap">
           <input class="input" id="rp-q" placeholder="搜索报告标题、基金名称或代码" value="${esc(filter.q)}" autocomplete="off">
@@ -109,6 +113,7 @@ export async function render() {
       </div>
     </div>
 
+    <div style="height:64px"></div>
     <button class="btn fab" data-act="new">＋ 新增报告</button>`;
 }
 
@@ -154,6 +159,12 @@ function reportCard(r) {
 
 export async function mount(r) {
   root = r;
+
+  // 报告库已不在主导航，靠这条返回按钮回鸡舍
+  const back = r.querySelector('[data-back-yard]');
+  if (back) back.onclick = () => {
+    location.hash = '#/yard';
+  };
 
   const qInput = r.querySelector('#rp-q');
   const doSearch = () => {

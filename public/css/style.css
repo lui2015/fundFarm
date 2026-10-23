@@ -164,7 +164,8 @@ a {
   bottom: 0;
   z-index: 40;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* 导航项数量会变（报告已移到鸡舍内），按实际按钮数均分 */
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   background: #fff;
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
