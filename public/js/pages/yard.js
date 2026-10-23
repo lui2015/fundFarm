@@ -404,6 +404,31 @@ export async function render() {
       }
     </div>`;
 
+  // 分析报告：右栏只放最新 3 份，点标题进详情，右上角进报告库
+  const latestReports = data.reports || [];
+  const reportsHtml = `
+    <div class="card">
+      <div class="card-title">分析报告<span class="spacer"></span>
+        <a class="more-link" href="#/reports">查看全部${
+          data.reportsTotal ? ` ${data.reportsTotal} 份` : ''
+        } ›</a></div>
+      ${
+        latestReports.length
+          ? latestReports
+              .map(
+                (r) => `<a class="rep-mini" href="#/report/${encodeURIComponent(r.id)}?from=yard" title="查看报告详情">
+                  <div class="t">${esc(r.title)}</div>
+                  <div class="m">${esc(String(r.reportDate || '').slice(0, 10))}${
+                  r.fundCode ? ' · 🔗 ' + esc(r.fundName || r.fundCode) : ' · 未关联基金'
+                }</div>
+                </a>`
+              )
+              .join('')
+          : `<div class="empty" style="padding:12px">还没有分析报告<br/>
+              <a class="more-link" href="#/reports">上传一份季报 / 研报 ›</a></div>`
+      }
+    </div>`;
+
   const reminders = (data.reminders || [])
     .map((r) => `<div class="report-item" data-code="${esc((r.codes || [])[0] || '')}">${esc(r.text)}</div>`)
     .join('');
@@ -421,6 +446,7 @@ export async function render() {
       </div>
       <div class="side-col">
         ${tasksHtml}
+        ${reportsHtml}
         ${remindersHtml}
         ${eventsHtml}
       </div>

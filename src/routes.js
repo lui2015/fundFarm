@@ -241,7 +241,25 @@ router.get('/admin/overview', auth.requireAuth, requireAdmin, (req, res) => {
 router.get('/yard', auth.requireAuth, async (req, res) => {
   try {
     const data = await yardEngine.buildYard(req.user.id);
-    res.json({ ok: true, ...data });
+    // 右栏「分析报告」：只要最新 3 份，字段精简（详情去 #/report/{id}）
+    const latestReports = db
+      .prepare(
+        `SELECT r.id, r.title, r.report_date, r.fund_code, r.status, r.created_at, f.name AS fund_name
+           FROM reports r LEFT JOIN funds f ON f.code = r.fund_code
+          WHERE r.user_id = ?
+          ORDER BY r.created_at DESC LIMIT 3`
+      )
+      .all(req.user.id)
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        reportDate: r.report_date || String(r.created_at || '').slice(0, 10),
+        fundCode: r.fund_code || '',
+        fundName: r.fund_name || null,
+        status: r.status,
+      }));
+    const reportsTotal = db.prepare('SELECT COUNT(*) AS n FROM reports WHERE user_id = ?').get(req.user.id).n;
+    res.json({ ok: true, ...data, reports: latestReports, reportsTotal });
   } catch (err) {
     res.status(500).json({ error: 'yard_failed', message: String(err.message || err) });
   }
