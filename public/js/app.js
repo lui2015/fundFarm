@@ -5,6 +5,7 @@ import * as Funds from './pages/funds.js';
 import * as Reports from './pages/reports.js';
 import * as Detail from './pages/detail.js';
 import * as Discover from './pages/discover.js';
+import * as Analysis from './pages/analysis.js';
 import * as Me from './pages/me.js';
 import * as ReportPage from './pages/report.js';
 import { stopLive } from './live.js';
@@ -24,6 +25,7 @@ export function setUser(u) {
 const NAV = [
   { key: 'yard', hash: '#/yard', icon: '🏠', label: '鸡舍' },
   { key: 'discover', hash: '#/discover', icon: '🏅', label: '发现' },
+  { key: 'analysis', hash: '#/analysis', icon: '📈', label: '分析' },
   { key: 'me', hash: '#/me', icon: '🙋', label: '我的' },
 ];
 
@@ -33,7 +35,8 @@ function parseHash() {
   if (!parts.length) return { name: 'yard', param: '' };
   if (parts[0] === 'fund') return { name: 'fund', param: parts[1] || '' };
   if (parts[0] === 'report') return { name: 'report', param: parts[1] || '' };
-  if (['yard', 'funds', 'reports', 'discover', 'me'].includes(parts[0])) return { name: parts[0], param: '' };
+  if (['yard', 'funds', 'reports', 'discover', 'analysis', 'me'].includes(parts[0]))
+    return { name: parts[0], param: '' };
   return { name: 'yard', param: '' };
 }
 
@@ -156,6 +159,7 @@ const PAGES = {
   fund: Detail,
   report: ReportPage,
   discover: Discover,
+  analysis: Analysis,
   me: Me,
 };
 

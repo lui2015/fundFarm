@@ -3435,3 +3435,20 @@ textarea.input {
 .rep-mini:hover .t {
   color: #2f7a4f;
 }
+
+/* ---------- 「分析」页：整页嵌入同站工具（基金分析平台） ---------- */
+.embed-page {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 200px);
+  min-height: 380px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+@media (min-width: 1024px) {
+  .embed-page {
+    height: calc(100vh - 170px);
+    min-height: 520px;
+  }
+}
