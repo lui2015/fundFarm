@@ -3481,3 +3481,13 @@ textarea.input {
     min-height: 520px;
   }
 }
+
+/* ---------- 类型图鉴：手机上分类默认折叠（只留前两个 + 「+N 个分类」） ---------- */
+.type-chips.is-collapsed .chip:not(.chip-more):nth-child(n + 3) {
+  display: none;
+}
+.type-chips .chip-more {
+  cursor: pointer;
+  color: var(--green-dark);
+  border-style: dashed;
+}

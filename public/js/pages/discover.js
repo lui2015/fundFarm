@@ -180,6 +180,16 @@ export async function render() {
 
   const typeRows = types
     .map((t) => {
+      // 手机上分类一多就糊成一片：默认只留前两个，点「+N 个分类」再展开
+      const cats = t.categories || [];
+      const collapsed = window.innerWidth < 700 && cats.length > 2;
+      const chips = cats.map((c) => `<span class="chip mini">${esc(c)}</span>`).join('');
+      const chipsMore =
+        cats.length > 2
+          ? `<button class="chip mini chip-more" data-chips-more data-total="${cats.length}">${
+              collapsed ? `+${cats.length - 2} 个分类` : '收起'
+            }</button>`
+          : '';
       return `<div class="type-item" data-type-key="${esc(t.key)}">
         <div class="breed-row type-head" role="button" tabindex="0" aria-expanded="false" title="展开 ${esc(t.name)} 基金列表">
           <div class="mini-chicken" style="width:56px;height:56px;flex-basis:56px">${skeletonChicken(
@@ -192,9 +202,7 @@ export async function render() {
               <span class="muted" style="font-weight:400;font-size:12px">${fmtCount(t.count)}</span>
             </div>
             <div class="muted" style="font-size:13px">对应品种：${esc(t.breed.name)} · ${esc(t.breed.desc)}</div>
-            <div class="type-chips">${(t.categories || [])
-              .map((c) => `<span class="chip mini">${esc(c)}</span>`)
-              .join('')}</div>
+            <div class="type-chips${collapsed ? ' is-collapsed' : ''}" data-chips>${chips}${chipsMore}</div>
           </div>
           <button class="btn ghost small type-toggle" data-toggle aria-expanded="false">查基金<b class="chev">▾</b></button>
         </div>
@@ -261,6 +269,18 @@ export async function render() {
 }
 
 export async function mount(r) {
+  // 分类折叠：点「+N 个分类」展开 / 点「收起」折回（按钮在可点击的 .type-head 里，必须阻止冒泡）
+  r.querySelectorAll('[data-chips-more]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      const wrap = b.closest('[data-chips]');
+      if (!wrap) return;
+      const on = wrap.classList.toggle('is-collapsed');
+      const total = Number(b.getAttribute('data-total')) || 0;
+      b.textContent = on ? `+${Math.max(total - 2, 1)} 个分类` : '收起';
+    };
+  });
+
   const qrBtn = r.querySelector('[data-act="embed-qr"]');
   if (qrBtn)
     qrBtn.onclick = () => embedExternal('https://www.luliming.xyz/fundRecommend/', '🎲 求一基 · 随机基金推荐');
