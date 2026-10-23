@@ -86,9 +86,7 @@ function initTypeItem(item, type, closeOthers) {
     if (reset) page = 1;
     more.disabled = true;
     if (tip) {
-      tip.textContent = `${type.name}${type.count ? ' · 共 ' + fmtCount(type.count) : ''}${
-        type.categories && type.categories.length ? '（含 ' + type.categories.join(' / ') + '）' : ''
-      }`;
+      tip.textContent = `${type.name}${type.count ? ' · 共 ' + fmtCount(type.count) + ' 只' : ''} · 列表为东财同类排行，细分类型仅作说明`;
     }
     if (reset) list.innerHTML = '<div class="empty" style="padding:16px">加载中…</div>';
     try {
@@ -180,16 +178,13 @@ export async function render() {
 
   const typeRows = types
     .map((t) => {
-      // 手机上分类一多就糊成一片：默认只留前两个，点「+N 个分类」再展开
+      // 细分分类（东财口径）不占标题行，改为放进展开面板的筛选区，只在需要时看到
       const cats = t.categories || [];
-      const collapsed = window.innerWidth < 700 && cats.length > 2;
-      const chips = cats.map((c) => `<span class="chip mini">${esc(c)}</span>`).join('');
-      const chipsMore =
-        cats.length > 2
-          ? `<button class="chip mini chip-more" data-chips-more data-total="${cats.length}">${
-              collapsed ? `+${cats.length - 2} 个分类` : '收起'
-            }</button>`
-          : '';
+      const subcats = cats.length
+        ? `<div class="type-subcats"><span class="muted">细分类型</span>${cats
+            .map((c) => `<span class="chip mini plain">${esc(c)}</span>`)
+            .join('')}</div>`
+        : '';
       return `<div class="type-item" data-type-key="${esc(t.key)}">
         <div class="breed-row type-head" role="button" tabindex="0" aria-expanded="false" title="展开 ${esc(t.name)} 基金列表">
           <div class="mini-chicken" style="width:56px;height:56px;flex-basis:56px">${skeletonChicken(
@@ -202,11 +197,11 @@ export async function render() {
               <span class="muted" style="font-weight:400;font-size:12px">${fmtCount(t.count)}</span>
             </div>
             <div class="muted" style="font-size:13px">对应品种：${esc(t.breed.name)} · ${esc(t.breed.desc)}</div>
-            <div class="type-chips${collapsed ? ' is-collapsed' : ''}" data-chips>${chips}${chipsMore}</div>
           </div>
           <button class="btn ghost small type-toggle" data-toggle aria-expanded="false">查基金<b class="chev">▾</b></button>
         </div>
         <div class="type-panel" hidden>
+          ${subcats}
           <div class="chip-row type-sorts">${QUERY_SORTS.map(
             ([k, label]) => `<button class="chip ${k === '1nzf' ? 'active' : ''}" data-qs="${k}">${label}</button>`
           ).join('')}</div>
@@ -269,18 +264,6 @@ export async function render() {
 }
 
 export async function mount(r) {
-  // 分类折叠：点「+N 个分类」展开 / 点「收起」折回（按钮在可点击的 .type-head 里，必须阻止冒泡）
-  r.querySelectorAll('[data-chips-more]').forEach((b) => {
-    b.onclick = (e) => {
-      e.stopPropagation();
-      const wrap = b.closest('[data-chips]');
-      if (!wrap) return;
-      const on = wrap.classList.toggle('is-collapsed');
-      const total = Number(b.getAttribute('data-total')) || 0;
-      b.textContent = on ? `+${Math.max(total - 2, 1)} 个分类` : '收起';
-    };
-  });
-
   const qrBtn = r.querySelector('[data-act="embed-qr"]');
   if (qrBtn)
     qrBtn.onclick = () => embedExternal('https://www.luliming.xyz/fundRecommend/', '🎲 求一基 · 随机基金推荐');

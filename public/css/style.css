@@ -3482,12 +3482,18 @@ textarea.input {
   }
 }
 
-/* ---------- 类型图鉴：手机上分类默认折叠（只留前两个 + 「+N 个分类」） ---------- */
-.type-chips.is-collapsed .chip:not(.chip-more):nth-child(n + 3) {
-  display: none;
+/* ---------- 类型图鉴：细分类型放在展开面板的筛选区（说明性标签，不占标题行） ---------- */
+.type-subcats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 8px;
+  font-size: 11px;
 }
-.type-chips .chip-more {
-  cursor: pointer;
-  color: var(--green-dark);
-  border-style: dashed;
+.chip.mini.plain {
+  color: var(--muted);
+  background: #faf8f1;
+  border-color: var(--line);
+  cursor: default;
 }
