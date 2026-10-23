@@ -14,6 +14,7 @@ const chickenEngine = require('./engine/chicken');
 const achEngine = require('./engine/achievements');
 const tasks = require('./engine/tasks');
 const levelEngine = require('./engine/level');
+const pnlEngine = require('./engine/pnl');
 const { id: gid, today, nowISO, daysBetween, round } = require('./util');
 
 const router = express.Router();
@@ -627,6 +628,18 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
     .prepare('SELECT * FROM trades WHERE adoption_id = ? ORDER BY date DESC LIMIT 50')
     .all(a.id);
 
+  // 持仓盈亏走势：全量历史净值 × 当时份额/成本（交易记录全量回放，不受上面 50 条展示限制）
+  const allTrades = db
+    .prepare('SELECT date, type, price, shares FROM trades WHERE adoption_id = ? ORDER BY date ASC')
+    .all(a.id);
+  const pnl = pnlEngine.buildSeries({
+    history: hist.items,
+    trades: allTrades,
+    shares: a.shares,
+    costPrice: a.cost_price,
+    current: current ? { date: new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10), nav: current } : null,
+  });
+
   return res.json({
     ok: true,
     adopted: true,
@@ -646,6 +659,7 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
     history: hist.items,
     historyStale: !!hist.stale,
     profile,
+    pnl,
     metrics: {
       current: current ? round(current, 4) : null,
       marketValue: marketValue ? round(marketValue, 2) : null,

@@ -10,9 +10,11 @@ import { startLive } from '../live.js';
 
 let data = null;
 let range = 60;
+let pnlRange = 60;
 let root = null;
 let code = '';
 let chartHandle = null;
+let pnlHandle = null;
 
 /** 基金规模（原始单位为元）→「x.xx 亿 / x.xx 万」 */
 function fmtScale(v) {
@@ -30,16 +32,21 @@ function fmtWan(v) {
   return n >= 10000 ? (n / 10000).toFixed(2) + ' 亿' : n.toFixed(0) + ' 万';
 }
 
-/** 按当前 range 从全量历史里按自然日筛出区间数据 */
+/** 按自然日截取区间：只保留离最后一个点 range-1 天内的数据 */
+function sliceByRange(points, days) {
+  if (!points.length || days >= 9999) return points;
+  const last = new Date(points[points.length - 1].date + 'T00:00:00');
+  if (Number.isNaN(last.getTime())) return points;
+  return points.filter((p) => (last - new Date(p.date + 'T00:00:00')) / 86400000 <= days - 1);
+}
+
+/** 按当前 range 从全量历史里按自然日筛出净值序列 */
 function chartSeries() {
   const all = (data && data.history) || [];
-  if (!all.length) return [];
-  const last = new Date(all[all.length - 1].date + 'T00:00:00');
-  const picked =
-    range >= 9999
-      ? all
-      : all.filter((h) => (last - new Date(h.date + 'T00:00:00')) / 86400000 <= range - 1);
-  return picked.map((h) => ({ v: h.nav, date: h.date }));
+  return sliceByRange(
+    all.map((h) => ({ v: h.nav, date: h.date })),
+    range
+  );
 }
 
 /** 生成图表句柄（html + bind + 本区间点数） */
@@ -49,6 +56,46 @@ function buildChart() {
   const handle = navChart(points, { label });
   return { ...handle, items: points };
 }
+
+/** 全量持仓盈亏序列（后端已按交易记录回放好，格式 [日期, 盈亏金额, 收益率]） */
+function pnlPoints() {
+  const rows = (data && data.pnl && data.pnl.points) || [];
+  return rows
+    .filter((r) => Array.isArray(r) && r[0])
+    .map((r) => ({ date: String(r[0]), v: Number(r[1]), rate: Number(r[2]) }));
+}
+
+/** 持仓盈亏走势图：0 轴为盈亏分界，数值按金额（元）显示 */
+function buildPnlChart() {
+  const points = sliceByRange(pnlPoints(), pnlRange);
+  const st = (getState() && getState().settings) || {};
+  const amount = (v) => fmtAmount(v, st, 0);
+  const signed = (v) => (Number(v) > 0 ? '+' : '') + amount(v);
+  const label = `${(data.adoption && data.adoption.nickname) || (data.fund && data.fund.name) || code} 持仓盈亏走势`;
+
+  const handle = navChart(points, {
+    label,
+    baseline: 0,
+    fmt: amount,
+    tip: (p) =>
+      `<b>${esc(p.date)}</b> · 累计盈亏 ${signed(p.v)}` +
+      (Number.isFinite(p.rate) ? `<br/>收益率 <b>${pct(p.rate, 2)}</b>` : ''),
+    legend: (list) => {
+      const lastP = list[list.length - 1];
+      const vals = list.map((x) => x.v);
+      const hi = Math.max(...vals);
+      const lo = Math.min(...vals);
+      return `<span class="c-change ${pctClass(lastP.v)}">${signed(lastP.v)}${
+        Number.isFinite(lastP.rate) ? `（${pct(lastP.rate, 2)}）` : ''
+      }</span>
+      <span class="muted">${esc(list[0].date)} ~ ${esc(lastP.date)} · ${list.length} 个交易日</span>
+      <span class="muted">区间最高 ${signed(hi)} / 最低 ${signed(lo)}</span>`;
+    },
+  });
+  return { ...handle, items: points };
+}
+
+const PNL_EMPTY = '<div class="empty" style="padding:12px">暂无持仓盈亏数据</div>';
 
 async function rerender() {
   if (!root) return;
@@ -599,6 +646,35 @@ export async function render(param) {
     </div>`
     : '';
 
+  // 持仓盈亏走势：只在有份额与成本、且历史足够画线时出现
+  pnlHandle = null;
+  let pnlCard = '';
+  if (inYard && data.adopted && pnlPoints().length > 1) {
+    pnlHandle = buildPnlChart();
+    pnlCard = `
+    <div class="card">
+      <div class="card-title">持仓盈亏走势
+        <span class="spacer"></span>
+        <div class="seg chart-seg">
+          ${[30, 60, 180, 9999]
+            .map(
+              (r) =>
+                `<button data-prange="${r}" class="${pnlRange === r ? 'active' : ''}">${
+                  r === 9999 ? '全部' : r + '天'
+                }</button>`
+            )
+            .join('')}
+        </div>
+      </div>
+      <div data-pnl-slot>${
+        pnlHandle.items.length > 1 ? pnlHandle.html : PNL_EMPTY
+      }</div>
+      <div class="muted" style="font-size:12px;margin-top:8px">
+        按历史净值 × 当时的份额与成本还原${(data.trades || []).length ? '，买卖记录按日回放' : ''}；曲线末端为实时估值。
+      </div>
+    </div>`;
+  }
+
   const reports = `
     <div class="card">
       <div class="card-title">研究报告<span class="spacer"></span>
@@ -640,7 +716,7 @@ export async function render(param) {
 
   // 桌面端左右分栏：主栏放走势/持仓/报告/心得，右栏放类型关键信息与基金档案
   return `<div class="detail-split">
-      <div class="detail-main">${header}${chart}${holding}${reports}${notes}</div>
+      <div class="detail-main">${header}${chart}${holding}${pnlCard}${reports}${notes}</div>
       <div class="detail-side">${profileCards}${info}</div>
     </div>
     <div class="disclaimer">数据来源：第三方公开接口，可能存在延迟或误差。<br/>本工具仅供个人学习研究，不构成投资建议。</div>`;
@@ -710,6 +786,22 @@ export async function mount(r) {
       slot.innerHTML =
         chartHandle.items.length > 1 ? chartHandle.html : '<div class="empty" style="padding:12px">暂无净值数据</div>';
       if (chartHandle.bind) chartHandle.bind(slot);
+    };
+  });
+
+  // 持仓盈亏走势：绑定指针提示 + 独立的区间切换
+  const pnlSlot = r.querySelector('[data-pnl-slot]');
+  if (pnlHandle && pnlHandle.bind) pnlHandle.bind(pnlSlot || r);
+  r.querySelectorAll('[data-prange]').forEach((b) => {
+    b.onclick = () => {
+      const next = Number(b.getAttribute('data-prange'));
+      if (next === pnlRange) return;
+      pnlRange = next;
+      r.querySelectorAll('[data-prange]').forEach((x) => x.classList.toggle('active', x === b));
+      pnlHandle = buildPnlChart();
+      if (!pnlSlot) return;
+      pnlSlot.innerHTML = pnlHandle.items.length > 1 ? pnlHandle.html : PNL_EMPTY;
+      if (pnlHandle.bind) pnlHandle.bind(pnlSlot);
     };
   });
 

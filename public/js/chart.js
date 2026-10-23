@@ -17,6 +17,9 @@ const VW = 1000;
 const VH = 300;
 const PAD = { t: 16, r: 4, b: 26, l: 8 };
 
+// 同一页面可能有多张图（净值走势 / 持仓盈亏走势），渐变 id 必须唯一，否则会串色
+let gradSeq = 0;
+
 function fmtNav(v) {
   const a = Math.abs(Number(v) || 0);
   if (a >= 100) return Number(v).toFixed(2);
@@ -54,7 +57,7 @@ function smoothPath(pts, tension = 0.16) {
 export function navChart(points, opts = {}) {
   const seen = new Set();
   const list = (points || [])
-    .map((p) => ({ v: Number(p.v), date: String(p.date || '') }))
+    .map((p) => ({ ...p, v: Number(p.v), date: String(p.date || '') }))
     .filter((p) => !Number.isNaN(p.v) && p.v !== null)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
     .filter((p) => {
@@ -64,6 +67,11 @@ export function navChart(points, opts = {}) {
     });
 
   if (list.length < 2) return { html: '', bind() {} };
+
+  // 可选配置：fmt 数值格式化 / tipLabel 提示词 / baseline 零轴 / tip、legend 自定义
+  const fmt = typeof opts.fmt === 'function' ? opts.fmt : fmtNav;
+  const tipLabel = opts.tipLabel || '净值';
+  const baseline = typeof opts.baseline === 'number' && Number.isFinite(opts.baseline) ? opts.baseline : null;
 
   const vals = list.map((p) => p.v);
   const rawMin = Math.min(...vals);
@@ -87,7 +95,9 @@ export function navChart(points, opts = {}) {
 
   const pts = list.map((p, i) => ({ x: sx(i), y: sy(p.v) }));
   const line = smoothPath(pts);
-  const area = `${line} L${x1.toFixed(1)},${y1} L${x0},${y1} Z`;
+  // 面积填充到 0 轴（有基准线时）或底部，盈亏图的正负更容易一眼看出
+  const fillY = baseline !== null && baseline > min && baseline < max ? sy(baseline) : y1;
+  const area = `${line} L${x1.toFixed(1)},${fillY.toFixed(1)} L${x0},${fillY.toFixed(1)} Z`;
 
   const first = vals[0];
   const last = vals[vals.length - 1];
@@ -105,9 +115,17 @@ export function navChart(points, opts = {}) {
       line: `<line class="c-grid" x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(
         1
       )}" vector-effect="non-scaling-stroke" />`,
-      label: `<div class="chart-ylabel" style="top:${((y / VH) * 100).toFixed(3)}%">${fmtNav(v)}</div>`,
+      label: `<div class="chart-ylabel" style="top:${((y / VH) * 100).toFixed(3)}%">${fmt(v)}</div>`,
     };
   });
+
+  // 零轴：盈亏图的正负分界，画一条比网格更明显的线
+  const baselineLine =
+    baseline !== null && baseline > min && baseline < max
+      ? `<line class="c-grid c-base" x1="${x0}" y1="${sy(baseline).toFixed(1)}" x2="${x1}" y2="${sy(
+          baseline
+        ).toFixed(1)}" vector-effect="non-scaling-stroke" />`
+      : '';
 
   const maxIdx = vals.indexOf(rawMax);
   const minIdx = vals.indexOf(rawMin);
@@ -128,19 +146,29 @@ export function navChart(points, opts = {}) {
     `<div class="chart-dot cursor" style="background:${color}"></div>`,
   ].join('');
 
+  const gid = `ffArea${(gradSeq += 1)}`;
+  const legendHtml =
+    typeof opts.legend === 'function'
+      ? opts.legend(list, { first, last, change, changePct, rawMax, rawMin, fmt })
+      : `<span class="c-change ${up ? 'up' : 'down'}">${up ? '+' : ''}${changePct.toFixed(2)}%</span>
+        <span class="muted">${esc(list[0].date)} ~ ${esc(list[lastIdx].date)} · ${list.length} 个交易日</span>
+        <span class="muted">最新 ${fmt(last)}</span>
+        <span class="muted">区间最高 ${fmt(rawMax)} / 最低 ${fmt(rawMin)}</span>`;
+
   const html = `
     <div class="chart-wrap">
       <div class="chart-plot">
         <svg class="nav-chart" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none" role="img"
              aria-label="${esc(opts.label || '净值走势')}">
           <defs>
-            <linearGradient id="ffArea" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="${color}" stop-opacity="0.26" />
               <stop offset="100%" stop-color="${color}" stop-opacity="0.02" />
             </linearGradient>
           </defs>
           ${grid.map((g) => g.line).join('')}
-          <path d="${area}" fill="url(#ffArea)" />
+          ${baselineLine}
+          <path d="${area}" fill="url(#${gid})" />
           <path class="c-line" d="${line}" stroke="${color}" vector-effect="non-scaling-stroke" />
           <line class="c-guide" x1="0" y1="${y0}" x2="0" y2="${y1}"
                 vector-effect="non-scaling-stroke" style="display:none" />
@@ -150,12 +178,7 @@ export function navChart(points, opts = {}) {
         ${dots}
         <div class="chart-tip"></div>
       </div>
-      <div class="chart-legend">
-        <span class="c-change ${up ? 'up' : 'down'}">${up ? '+' : ''}${changePct.toFixed(2)}%</span>
-        <span class="muted">${esc(list[0].date)} ~ ${esc(list[lastIdx].date)} · ${list.length} 个交易日</span>
-        <span class="muted">最新 ${fmtNav(last)}</span>
-        <span class="muted">区间最高 ${fmtNav(rawMax)} / 最低 ${fmtNav(rawMin)}</span>
-      </div>
+      <div class="chart-legend">${legendHtml}</div>
     </div>`;
 
   const bind = (root) => {
@@ -184,8 +207,10 @@ export function navChart(points, opts = {}) {
 
       const vsFirst = first ? ((p.v - first) / first) * 100 : 0;
       tip.innerHTML =
-        `<b>${esc(p.date)}</b> · 净值 ${fmtNav(p.v)}` +
-        (idx === 0 ? '' : `<br/>较起点 <b>${vsFirst >= 0 ? '+' : ''}${vsFirst.toFixed(2)}%</b>`);
+        typeof opts.tip === 'function'
+          ? opts.tip(p, idx, { first, vsFirst, fmt })
+          : `<b>${esc(p.date)}</b> · ${esc(tipLabel)} ${fmt(p.v)}` +
+            (idx === 0 ? '' : `<br/>较起点 <b>${vsFirst >= 0 ? '+' : ''}${vsFirst.toFixed(2)}%</b>`);
       tip.style.display = 'block';
       const left = (sx(idx) / VW) * rect.width;
       const tw = tip.offsetWidth || 120;
