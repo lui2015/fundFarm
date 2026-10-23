@@ -3482,18 +3482,23 @@ textarea.input {
   }
 }
 
-/* ---------- 类型图鉴：细分类型放在展开面板的筛选区（说明性标签，不占标题行） ---------- */
+/* ---------- 类型图鉴：细分类型作为筛选条件（点一下只看该细分的基金） ---------- */
 .type-subcats {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 6px 4px;
   margin: 2px 0 8px;
   font-size: 11px;
 }
-.chip.mini.plain {
+.type-subcats .chip {
+  font-size: 11px;
+  padding: 2px 9px;
   color: var(--muted);
-  background: #faf8f1;
-  border-color: var(--line);
-  cursor: default;
+}
+.type-subcats .chip.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  font-weight: 700;
 }

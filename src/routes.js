@@ -110,13 +110,23 @@ router.get('/fund-types', async (req, res) => {
     /* 同上 */
   }
 
+  // 细分类型以东财字典为准（静态列表文案可能和接口不一致，筛不到东西），拿不到时回退静态列表
+  const catMap = {};
+  await Promise.all(
+    Object.entries(chickenEngine.FUND_TYPES).map(async ([key, t]) => {
+      if (t.ft === 'hb' || t.ft === 'all') return;
+      const list = await quote.categoryNames(t.name);
+      if (list.length) catMap[key] = list;
+    })
+  );
+
   const types = Object.entries(chickenEngine.FUND_TYPES).map(([key, t]) => {
     const b = chickenEngine.breedInfo(key);
     return {
       key,
       ft: t.ft,
       name: t.name,
-      categories: t.categories,
+      categories: catMap[key] || t.categories,
       // other 指向「全部基金」，数量没有意义，不给数字
       count: key === 'other' ? null : counts[t.ft] || null,
       breed: { key: b.key, name: b.name, desc: b.desc, colors: { body: b.color, accent: b.accent } },
@@ -925,6 +935,7 @@ router.get('/explore', auth.requireAuth, async (req, res) => {
       sort: String(req.query.sort || '1nzf'),
       page: req.query.page,
       size: req.query.size,
+      cat: String(req.query.cat || ''),
     });
     res.json({ ok: true, ...data });
   } catch (err) {

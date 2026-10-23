@@ -674,8 +674,145 @@ const numAt = (arr, i) => {
   return isFinite(n) && String(arr[i]).trim() !== '' ? n : null;
 };
 
+/** 排序 key -> 排行接口返回的字段名（用于按细分类型筛选后本地重排） */
+const SORT_FIELD = { '1nzf': 'y1', '6yzf': 'm6', '3yzf': 'm3', '1yzf': 'm1', rzdf: 'dayPct', lnzf: 'lnzf', jnzf: 'ytd' };
+
+/** 排行接口一行（逗号分隔）-> 结构化条目；货币型字段整体前移一位 */
+function parseRankRow(line, money) {
+  const f = String(line).split(',');
+  if (!f[0] || !/^\d{6}$/.test(f[0])) return null;
+  const base = {
+    code: f[0],
+    name: f[1],
+    date: f[3] || null,
+    dayPct: numAt(f, 6),
+    m1: numAt(f, 8),
+    m3: numAt(f, 9),
+    m6: numAt(f, 10),
+    y1: numAt(f, 11),
+  };
+  if (money) {
+    return {
+      ...base,
+      nav: null,
+      y3: numAt(f, 12),
+      ytd: numAt(f, 13),
+      lnzf: null,
+      estab: f[15] || null,
+      sevenDay: numAt(f, 5),
+      wanfen: numAt(f, 4),
+    };
+  }
+  return {
+    ...base,
+    nav: numAt(f, 4),
+    y3: numAt(f, 13),
+    ytd: numAt(f, 14),
+    lnzf: numAt(f, 15),
+    estab: f[16] || null,
+  };
+}
+
+/* ---------------- 细分类型（混合型-偏股 这类）筛选：全量排行 + 天天基金类型字典 ---------------- */
+
+const fullRankCache = new TTLCache(30 * 60 * 1000);
+const catMapCache = new TTLCache(12 * 60 * 60 * 1000);
+/** 全量排行 / 类型字典的并发回源去重 */
+const catInflight = new Map();
+
+/**
+ * 一次性取回某个大类的全部排行（一次请求 8000~20000 行），
+ * 用于按细分类型筛选后本地排序分页——排行榜接口不支持细分口径。
+ */
+function fetchFullRank(type) {
+  const key = `full:${type}`;
+  const cached = fullRankCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  if (catInflight.has(key)) return catInflight.get(key);
+  const p = (async () => {
+    const url =
+      `https://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=kf&ft=${EXPLORE_TYPES[type]}` +
+      `&rs=&gs=0&sc=1nzf&st=desc&pi=1&pn=30000&dx=1`;
+    const text = await fetchText(url, {
+      timeout: 30000,
+      headers: { 'User-Agent': UA, Referer: 'https://fund.eastmoney.com/data/fundranking.html' },
+    });
+    const m = text.match(/datas:(\[[\s\S]*?\]),allRecords:(\d+)/);
+    if (!m) throw new Error('bad_full_rank');
+    const items = JSON.parse(m[1]).map((line) => parseRankRow(line, false)).filter(Boolean);
+    if (!items.length) throw new Error('empty_full_rank');
+    return fullRankCache.set(key, items);
+  })().finally(() => catInflight.delete(key));
+  catInflight.set(key, p);
+  return p;
+}
+
+/** 基金代码 -> 东财细分类型（如「混合型-偏股」），来自 fundcode_search.js，缓存 12h */
+async function getCategoryMap() {
+  const cached = catMapCache.get('map');
+  if (cached) return cached;
+  if (catInflight.has('catmap')) return catInflight.get('catmap');
+  const p = (async () => {
+    const text = await fetchText('https://fund.eastmoney.com/js/fundcode_search.js', {
+      timeout: 20000,
+      headers: { 'User-Agent': UA, Referer: 'https://fund.eastmoney.com/' },
+    });
+    const map = {};
+    const re = /\["(\d{6})","[^"]*","[^"]*","([^"]*)"/g;
+    let m;
+    while ((m = re.exec(text))) map[m[1]] = m[2];
+    if (!Object.keys(map).length) throw new Error('bad_fundcode_map');
+    return catMapCache.set('map', map);
+  })().finally(() => catInflight.delete('catmap'));
+  catInflight.set('catmap', p);
+  return p;
+}
+
+/** 某个大类下真实存在的细分类型（供类型图鉴渲染筛选标签），拿不到时返回 [] */
+async function categoryNames(typeName) {
+  try {
+    const map = await getCategoryMap();
+    const prefix = `${typeName}-`;
+    const set = new Set();
+    for (const code in map) {
+      const c = map[code];
+      if (c && (c === typeName || c.startsWith(prefix))) set.add(c);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  } catch (err) {
+    return [];
+  }
+}
+
+/** 按细分类型筛选：全量排行 + 代码字典求交集，再本地排序分页 */
+async function exploreByCategory({ type, sort, page, size, cat }) {
+  const [rows, cats] = await Promise.all([fetchFullRank(type), getCategoryMap()]);
+  const list = rows.filter((it) => cats[it.code] === cat);
+  const field = SORT_FIELD[sort] || 'y1';
+  list.sort((a, b) => {
+    const x = a[field];
+    const y = b[field];
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return y - x;
+  });
+  return {
+    type,
+    sort,
+    cat,
+    page,
+    size,
+    total: list.length,
+    counts: {},
+    items: list.slice((page - 1) * size, page * size),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * 按类型 / 业绩排序筛选基金（东财排行，无需逐个请求详情）
+ * 传 cat（如「混合型-偏股」）时改用「全量排行 + 细分字典」筛选。
  * @returns {{items:Array,total:number,counts:object,page:number,size:number}}
  */
 async function explore(opts = {}) {
@@ -683,6 +820,16 @@ async function explore(opts = {}) {
   const sort = EXPLORE_SORTS[opts.sort] ? opts.sort : '1nzf';
   const page = Math.max(1, Math.min(Number(opts.page) || 1, 200));
   const size = Math.max(10, Math.min(Number(opts.size) || 20, 40));
+
+  const cat = String(opts.cat || '').trim();
+  if (cat && type !== 'hb') {
+    try {
+      return await exploreByCategory({ type, sort, page, size, cat });
+    } catch (err) {
+      /* 细分筛选失败就退回整类排行，至少让用户还能看到列表 */
+    }
+  }
+
   const key = `${type}:${sort}:${page}:${size}`;
   const cached = exploreCache.get(key);
   if (cached) return cached;
@@ -706,41 +853,7 @@ async function explore(opts = {}) {
   const m = text.match(/datas:(\[[\s\S]*?\]),allRecords:(\d+)/);
   if (!m) throw new Error('bad_explore_payload');
   const rows = JSON.parse(m[1]);
-  const items = rows
-    .map((line) => {
-      const f = String(line).split(',');
-      if (!f[0] || !/^\d{6}$/.test(f[0])) return null;
-      const base = {
-        code: f[0],
-        name: f[1],
-        date: f[3] || null,
-        dayPct: numAt(f, 6),
-        m1: numAt(f, 8),
-        m3: numAt(f, 9),
-        m6: numAt(f, 10),
-        y1: numAt(f, 11),
-      };
-      // 货币型没有净值，只有万份收益 / 七日年化，且后面几个月/年字段整体前移一位
-      if (money) {
-        return {
-          ...base,
-          nav: null,
-          y3: numAt(f, 12),
-          ytd: numAt(f, 13),
-          estab: f[15] || null,
-          sevenDay: numAt(f, 5),
-          wanfen: numAt(f, 4),
-        };
-      }
-      return {
-        ...base,
-        nav: numAt(f, 4),
-        y3: numAt(f, 13),
-        ytd: numAt(f, 14),
-        estab: f[16] || null,
-      };
-    })
-    .filter(Boolean);
+  const items = rows.map((line) => parseRankRow(line, money)).filter(Boolean);
 
   const counts = {};
   const cnt = text.match(/zs_count:(\d+),gp_count:(\d+),hh_count:(\d+),zq_count:(\d+),qdii_count:(\d+),fof_count:(\d+)/);
@@ -1047,6 +1160,7 @@ module.exports = {
   getFundInfo,
   search,
   explore,
+  categoryNames,
   getIndices,
   getGlobalIndices,
   weatherOf,

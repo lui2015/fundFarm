@@ -46,6 +46,7 @@ function initTypeItem(item, type, closeOthers) {
   const tip = item.querySelector('[data-tip]');
   const more = item.querySelector('[data-more]');
   let sort = '1nzf';
+  let cat = '';
   let page = 1;
   let loaded = false;
 
@@ -86,12 +87,23 @@ function initTypeItem(item, type, closeOthers) {
     if (reset) page = 1;
     more.disabled = true;
     if (tip) {
-      tip.textContent = `${type.name}${type.count ? ' · 共 ' + fmtCount(type.count) + ' 只' : ''} · 列表为东财同类排行，细分类型仅作说明`;
+      tip.textContent = cat
+        ? `${cat} · 筛选中…`
+        : `${type.name}${type.count ? ' · 共 ' + fmtCount(type.count) : ''} · 列表为东财同类排行`;
     }
     if (reset) list.innerHTML = '<div class="empty" style="padding:16px">加载中…</div>';
     try {
-      const r = await Api.explore(`type=${encodeURIComponent(type.ft)}&sort=${sort}&page=${page}&size=20`);
+      const r = await Api.explore(
+        `type=${encodeURIComponent(type.ft)}&sort=${sort}&page=${page}&size=20${
+          cat ? `&cat=${encodeURIComponent(cat)}` : ''
+        }`
+      );
       paint(r.items || [], !reset);
+      if (tip) {
+        tip.textContent = cat
+          ? `${cat} · 共 ${fmtCount(r.total || 0)}（按东财细分口径）`
+          : `${type.name}${type.count ? ' · 共 ' + fmtCount(type.count) : ''} · 列表为东财同类排行`;
+      }
     } catch (err) {
       if (reset) list.innerHTML = `<div class="empty" style="padding:16px">拉取失败：${esc(err.message || '')}</div>`;
       else toast('没有更多了');
@@ -122,6 +134,18 @@ function initTypeItem(item, type, closeOthers) {
       e.stopPropagation();
       sort = b.getAttribute('data-qs');
       item.querySelectorAll('[data-qs]').forEach((x) => x.classList.toggle('active', x === b));
+      load(true);
+    };
+  });
+
+  // 细分类型筛选（全部 / 混合型-偏股 …）
+  item.querySelectorAll('[data-cat]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      const next = b.getAttribute('data-cat') || '';
+      if (next === cat) return;
+      cat = next;
+      item.querySelectorAll('[data-cat]').forEach((x) => x.classList.toggle('active', x === b));
       load(true);
     };
   });
@@ -178,12 +202,22 @@ export async function render() {
 
   const typeRows = types
     .map((t) => {
-      // 细分分类（东财口径）不占标题行，改为放进展开面板的筛选区，只在需要时看到
-      const cats = t.categories || [];
-      const subcats = cats.length
-        ? `<div class="type-subcats"><span class="muted">细分类型</span>${cats
-            .map((c) => `<span class="chip mini plain">${esc(c)}</span>`)
-            .join('')}</div>`
+      // 细分分类（东财口径）放在展开面板的筛选区，点了就是按该细分筛列表。
+      // 货币型 / 其他走的是另一套排行接口，无法按细分筛；只有一个细分（股票型）时也没必要显示。
+      const cats = (t.categories || []).filter((c) => c && c !== t.name);
+      const canFilterCat = t.ft !== 'hb' && t.ft !== 'all' && cats.length > 0;
+      const subcats = canFilterCat
+        ? `<div class="type-subcats"><span class="muted">细分</span>
+            <button class="chip mini active" data-cat="">全部</button>
+            ${cats
+              .map(
+                (c) =>
+                  `<button class="chip mini" data-cat="${esc(c)}" title="只看${esc(c)}">${esc(
+                    c.replace(/^[^-]+-/, '')
+                  )}</button>`
+              )
+              .join('')}
+          </div>`
         : '';
       return `<div class="type-item" data-type-key="${esc(t.key)}">
         <div class="breed-row type-head" role="button" tabindex="0" aria-expanded="false" title="展开 ${esc(t.name)} 基金列表">
