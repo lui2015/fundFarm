@@ -3436,19 +3436,48 @@ textarea.input {
   color: #2f7a4f;
 }
 
-/* ---------- 「分析」页：整页嵌入同站工具（基金分析平台） ---------- */
+/* ---------- 「分析」页：无边框整页嵌入同站工具（基金分析平台） ---------- */
+.embed-page-wrap {
+  position: relative;
+}
 .embed-page {
   display: block;
   width: 100%;
-  height: calc(100vh - 200px);
+  height: calc(100vh - 160px);
   min-height: 380px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  border: 0;
+  border-radius: 0;
   background: #fff;
+}
+/* 新窗口打开：悬浮在右下角（避开被嵌页面自己的右上角导航），不占版面 */
+.embed-float {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 5;
+  opacity: 0.72;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgba(120, 100, 60, 0.12);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-decoration: none;
+  backdrop-filter: blur(6px);
+}
+.embed-float:hover {
+  color: var(--ink);
+  background: #fff;
+  opacity: 1;
 }
 @media (min-width: 1024px) {
   .embed-page {
-    height: calc(100vh - 170px);
+    height: calc(100vh - 140px);
     min-height: 520px;
   }
 }
