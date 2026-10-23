@@ -3502,3 +3502,79 @@ textarea.input {
   color: #fff;
   font-weight: 700;
 }
+
+/* ---------- 鸡舍标题旁的「去自选」：小招牌质感（渐变 + 立体投影 + hover 微动） ---------- */
+.yard-watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 3px 12px 3px 9px;
+  border: 1px solid #f0dcb4;
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fffaf0 0%, #ffe9c7 100%);
+  color: #8a5a1f;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  box-shadow: 0 2px 0 #ecd7ae, 0 4px 12px rgba(200, 155, 98, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.yard-watch:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, #fffdf5 0%, #ffe2b6 100%);
+  box-shadow: 0 3px 0 #e6cda0, 0 8px 18px rgba(200, 155, 98, 0.26);
+}
+.yard-watch:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 #ecd7ae, 0 2px 6px rgba(200, 155, 98, 0.18);
+}
+.yard-watch .yw-ico {
+  font-size: 13px;
+  line-height: 1;
+  transform-origin: 50% 60%;
+}
+/* 掠过式高光，hover 时像被阳光扫过 */
+.yard-watch::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: -60%;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  transform: skewX(-18deg);
+  transition: left 0.5s ease;
+  pointer-events: none;
+}
+.yard-watch:hover::after {
+  left: 120%;
+}
+.yard-watch:hover .yw-ico {
+  animation: yw-wiggle 0.6s ease;
+}
+@keyframes yw-wiggle {
+  0%,
+  100% {
+    transform: rotate(0) scale(1);
+  }
+  30% {
+    transform: rotate(-14deg) scale(1.15);
+  }
+  60% {
+    transform: rotate(10deg) scale(1.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .yard-watch,
+  .yard-watch .yw-ico {
+    transition: none;
+    animation: none !important;
+  }
+}

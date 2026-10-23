@@ -340,7 +340,8 @@ export async function render() {
   const chickenCard = `
     <div class="card">
       <div class="card-title">我的鸡舍
-        <button class="btn ghost small" data-go-watch style="margin-left:8px" title="打开自选列表">📋 去自选</button>
+        <button class="yard-watch" data-go-watch title="打开自选列表（观察池）"
+        ><span class="yw-ico">⭐</span>去自选</button>
         <span class="spacer"></span>
         <span class="muted" data-yard-count style="font-weight:400;font-size:12px">共 ${data.items.length} 只</span>
       </div>
