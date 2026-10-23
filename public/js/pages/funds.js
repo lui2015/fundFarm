@@ -124,6 +124,10 @@ export async function render() {
 
   return `
     <div class="card tight">
+      <div class="report-head">
+        <button class="btn ghost small" data-back-yard>← 鸡舍</button>
+        <span class="spacer"></span>
+      </div>
       <div class="tabs" style="margin-bottom:8px">${tabs}
         <button data-act="addgroup" class="active" style="background:#fff;color:var(--green-dark)">+ 分组</button>
       </div>
@@ -176,12 +180,20 @@ export async function render() {
         : ''
     }
 
+    <div style="height:64px"></div>
     <button class="btn fab" data-act="adopt">＋ 领养基金</button>`;
 }
 
 export async function mount(r) {
   root = r;
   startLive(r);
+
+  // 自选已不在主导航，靠这条返回按钮回鸡舍
+  const back = r.querySelector('[data-back-yard]');
+  if (back)
+    back.onclick = () => {
+      location.hash = '#/yard';
+    };
 
   r.querySelectorAll('[data-g]').forEach((b) => {
     b.onclick = () => {
