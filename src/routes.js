@@ -424,10 +424,15 @@ router.get('/funds', auth.requireAuth, async (req, res) => {
     }[sort];
     if (cmp) list = [...list].sort(cmp);
 
+    // 买入/卖出提醒：到价的基金在自选卡片上亮角标
+    const alertPrices = {};
+    for (const it of items) alertPrices[it.fundCode] = it.quote ? it.quote.estimate || it.quote.nav : null;
+    const alertHits = alertEngine.triggeredByCode(req.user.id, alertPrices);
+
     const positioned = items.filter((i) => i.hasPosition).length;
     res.json({
       ok: true,
-      items: list,
+      items: list.map((it) => ({ ...it, alert: alertHits[it.fundCode] || null })),
       count: list.length,
       total: items.length,
       // 已建仓（进鸡舍）的数量 / 只在自选里观察的数量

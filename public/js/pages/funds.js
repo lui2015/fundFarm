@@ -45,6 +45,14 @@ export async function render() {
     return `${sign}${amount}${rate}`;
   };
 
+  /** 到价角标：买入绿 / 卖出红（轮询时由 live.js 就地亮起或收起） */
+  const alertFlag = (it, inline) =>
+    `<span class="alert-flag ${it.alert ? esc(it.alert.type) : ''}" data-live-alert="${esc(it.fundCode)}"${
+      it.alert ? '' : ' hidden'
+    }${inline ? ' style="margin:0 0 0 6px"' : ''} title="${
+      it.alert ? (it.alert.type === 'buy' ? '已跌到买入价，可以考虑加仓' : '已涨到卖出价，可以考虑止盈') : ''
+    }">${it.alert ? `${it.alert.type === 'buy' ? '买入' : '卖出'} ${Number(it.alert.price).toFixed(4)}` : ''}</span>`;
+
   const tabs = [
     `<button data-g="all" class="${view.groupId === 'all' ? 'active' : ''}">全部 ${data.total}</button>`,
     ...groups.map(
@@ -85,7 +93,7 @@ export async function render() {
           <div class="lr-main">
             <div class="lr-name" title="${esc(it.nickname)}">${esc(it.nickname)} <span class="muted" style="font-weight:400">${esc(it.fundCode)}</span>${
               it.hasPosition ? '' : ' <span class="tag-watch">未入场</span>'
-            }</div>
+            }${alertFlag(it, true)}</div>
             <div class="lr-sub">${esc(it.category || c.breedName || '')} · Lv.${c.level || 1} · 持有 ${it.holdingDays} 天${
               c.hungry && it.hasPosition ? ' · 🍚饿了' : ''
             }</div>
@@ -105,6 +113,7 @@ export async function render() {
         <div class="name" title="${esc(it.nickname)}">${esc(it.nickname)}</div>
         <div class="sub" title="${esc(c.breedName || '')}${c.look && c.look.name ? '·' + esc(c.look.name) : ''}">${esc(it.fundCode)} · ${esc(it.category || c.breedName || '')}</div>
         <div class="pct ${pctClass(it.todayPct)}" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
+        ${alertFlag(it)}
         ${
           it.hasPosition
             ? `<div class="sub">盈亏 <b class="${pctClass(it.profitRate)}">${profitText(it)}</b> <span class="build-tag ${
