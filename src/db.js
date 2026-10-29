@@ -242,6 +242,18 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_notes_fund ON notes(user_id, fund_code);
+
+-- 买入 / 卖出价格提醒：现价到达预期价时提示（每人每只基金最多 6 条）
+CREATE TABLE IF NOT EXISTS price_alerts (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  fund_code  TEXT NOT NULL,
+  type       TEXT NOT NULL,
+  price      REAL NOT NULL,
+  created_at TEXT NOT NULL,
+  hit_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_user_fund ON price_alerts(user_id, fund_code);
 `);
 
 const ACHIEVEMENTS = [

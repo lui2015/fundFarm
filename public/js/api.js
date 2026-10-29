@@ -55,6 +55,10 @@ export const Api = {
   adopt: (b) => request('/funds', { method: 'POST', body: b }),
   release: (code) => request('/funds/' + code, { method: 'DELETE' }),
   updateFund: (code, b) => request('/funds/' + code, { method: 'PATCH', body: b }),
+  // 买入 / 卖出价格提醒
+  alerts: (code) => request('/funds/' + code + '/alerts'),
+  addAlert: (code, b) => request('/funds/' + code + '/alerts', { method: 'POST', body: b }),
+  delAlert: (code, id) => request('/funds/' + code + '/alerts/' + encodeURIComponent(id), { method: 'DELETE' }),
   search: (q) => request('/search?q=' + encodeURIComponent(q)),
   // 喂食 / 安抚必须附投研素材：extra = { note } 或 { report_id }
   interact: (id, action, extra) =>

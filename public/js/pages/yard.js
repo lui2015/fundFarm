@@ -301,6 +301,11 @@ export async function render() {
         <div class="name" title="${esc(it.nickname)}">${esc(it.nickname)}</div>
         <div class="sub" title="${esc(c.breedName || '')}${c.look && c.look.name ? '·' + esc(c.look.name) : ''}">${esc(it.fundCode)} · ${esc(it.category || c.breedName || '')}</div>
         <div class="pct ${pctClass(it.todayPct)}" data-live-pct="${esc(it.fundCode)}">${pct(it.todayPct)}</div>
+        <span class="alert-flag ${it.alert ? esc(it.alert.type) : ''}" data-live-alert="${esc(it.fundCode)}"${
+        it.alert ? '' : ' hidden'
+      } title="${it.alert ? (it.alert.type === 'buy' ? '已跌到买入价，可以考虑加仓' : '已涨到卖出价，可以考虑止盈') : ''}">${
+        it.alert ? `${it.alert.type === 'buy' ? '买入' : '卖出'} ${money(it.alert.price, 4)}` : ''
+      }</span>
         <div class="profit-line" title="持仓盈亏 ${profitText(it)}">
           <span>盈亏</span>
           <b class="${pctClass(it.profitRate)}">${profitText(it)}</b>

@@ -15,6 +15,7 @@ const achEngine = require('./engine/achievements');
 const tasks = require('./engine/tasks');
 const levelEngine = require('./engine/level');
 const pnlEngine = require('./engine/pnl');
+const alertEngine = require('./engine/alerts');
 const { id: gid, today, nowISO, daysBetween, round } = require('./util');
 
 const router = express.Router();
@@ -269,7 +270,20 @@ router.get('/yard', auth.requireAuth, async (req, res) => {
         status: r.status,
       }));
     const reportsTotal = db.prepare('SELECT COUNT(*) AS n FROM reports WHERE user_id = ?').get(req.user.id).n;
-    res.json({ ok: true, ...data, reports: latestReports, reportsTotal });
+    // 买入/卖出提醒：现价已到达预期价的基金，在卡片上打角标
+    const alertPrices = {};
+    for (const it of data.items) {
+      alertPrices[it.fundCode] = it.quote ? it.quote.estimate || it.quote.nav : null;
+    }
+    const alertHits = alertEngine.triggeredByCode(req.user.id, alertPrices);
+    data.items = data.items.map((it) => ({ ...it, alert: alertHits[it.fundCode] || null }));
+    res.json({
+      ok: true,
+      ...data,
+      reports: latestReports,
+      reportsTotal,
+      alertCount: Object.keys(alertHits).length,
+    });
   } catch (err) {
     res.status(500).json({ error: 'yard_failed', message: String(err.message || err) });
   }
@@ -491,11 +505,20 @@ router.get('/quotes', auth.requireAuth, async (req, res) => {
       };
     });
 
+    // 买入/卖出提醒：轮询时同步角标（现价到达预期价才算）
+    const hitPrices = {};
+    for (const c of codes) {
+      const q = quotes[c];
+      hitPrices[c] = q ? q.estimate || q.nav : null;
+    }
+    const alerts = alertEngine.triggeredByCode(req.user.id, hitPrices);
+
     res.json({
       ok: true,
       trading: quote.isTrading(),
       updatedAt: nowISO(),
       items,
+      alerts,
       summary: yardEngine.summarize(pseudo),
       indices: indices.items || [],
       indicesUpdatedAt: indices.updatedAt || null,
@@ -633,6 +656,7 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
       history: hist.items,
       historyStale: !!hist.stale,
       profile,
+      alerts: alertEngine.list(req.user.id, code, alertEngine.priceOf(q)),
       reports: [],
       notes: [],
     });
@@ -688,6 +712,7 @@ router.get('/funds/:code', auth.requireAuth, async (req, res) => {
     historyStale: !!hist.stale,
     profile,
     pnl,
+    alerts: alertEngine.list(req.user.id, code, current || alertEngine.priceOf(q)),
     metrics: {
       current: current ? round(current, 4) : null,
       marketValue: marketValue ? round(marketValue, 2) : null,
@@ -744,6 +769,57 @@ router.delete('/funds/:code/trades/:tradeId', auth.requireAuth, (req, res) => {
   const a = getAdoption(req.user.id, req.params.code);
   if (!a) return res.status(404).json({ error: 'not_found' });
   db.prepare('DELETE FROM trades WHERE id = ? AND adoption_id = ?').run(req.params.tradeId, a.id);
+  res.json({ ok: true });
+});
+
+/* ============================ 买入 / 卖出价格提醒 ============================ */
+
+/** 提醒列表（附带现价与是否已到达） */
+router.get('/funds/:code/alerts', auth.requireAuth, async (req, res) => {
+  const code = String(req.params.code);
+  if (!CODE_RE.test(code)) return res.status(400).json({ error: 'bad_fund_code' });
+  const q = await quote.fetchEstimate(code).catch(() => null);
+  const price = alertEngine.priceOf(q);
+  res.json({
+    ok: true,
+    max: alertEngine.MAX_ALERTS,
+    current: price === null ? null : round(price, 4),
+    alerts: alertEngine.list(req.user.id, code, price),
+  });
+});
+
+/** 新增提醒：type=buy|sell，price=预期价 */
+router.post('/funds/:code/alerts', auth.requireAuth, async (req, res) => {
+  const code = String(req.params.code);
+  if (!CODE_RE.test(code)) return res.status(400).json({ error: 'bad_fund_code' });
+  const body = req.body || {};
+  const out = alertEngine.add(req.user.id, code, String(body.type || ''), body.price);
+  if (out.error) {
+    const status = out.error === 'alert_limit' || out.error === 'alert_exists' ? 409 : 400;
+    const message =
+      out.error === 'alert_limit'
+        ? `最多只能设 ${alertEngine.MAX_ALERTS} 条提醒`
+        : out.error === 'alert_exists'
+        ? '这条提醒已经加过了'
+        : '预期价不合法';
+    return res.status(status).json({ error: out.error, message, limit: alertEngine.MAX_ALERTS });
+  }
+  const q = await quote.fetchEstimate(code).catch(() => null);
+  const price = alertEngine.priceOf(q);
+  res.json({
+    ok: true,
+    max: alertEngine.MAX_ALERTS,
+    current: price === null ? null : round(price, 4),
+    alerts: alertEngine.list(req.user.id, code, price),
+  });
+});
+
+router.delete('/funds/:code/alerts/:alertId', auth.requireAuth, (req, res) => {
+  const code = String(req.params.code);
+  if (!CODE_RE.test(code)) return res.status(400).json({ error: 'bad_fund_code' });
+  if (!alertEngine.remove(req.user.id, String(req.params.alertId))) {
+    return res.status(404).json({ error: 'not_found' });
+  }
   res.json({ ok: true });
 });
 

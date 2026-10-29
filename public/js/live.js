@@ -103,6 +103,20 @@ function apply(data) {
       el.textContent = it.estimate === null || it.estimate === undefined ? '--' : it.estimate;
     });
   });
+  // 买入 / 卖出提醒角标：到价亮起，价格回落就收起
+  const alerts = data.alerts || {};
+  rootEl.querySelectorAll('[data-live-alert]').forEach((el) => {
+    const a = alerts[el.getAttribute('data-live-alert')];
+    if (!a) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.className = `alert-flag ${a.type}`;
+    el.textContent = `${a.type === 'buy' ? '买入' : '卖出'} ${Number(a.price).toFixed(4)}`;
+    el.title = a.type === 'buy' ? '已跌到买入价，可以考虑加仓' : '已涨到卖出价，可以考虑止盈';
+  });
+
   updateSummary(data);
   updateIndex(data);
   markTime(data, false);

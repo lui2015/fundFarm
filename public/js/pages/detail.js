@@ -11,6 +11,7 @@ import { startLive } from '../live.js';
 let data = null;
 let range = 60;
 let pnlRange = 60;
+let alertType = 'buy';
 let root = null;
 let code = '';
 let chartHandle = null;
@@ -96,6 +97,51 @@ function buildPnlChart() {
 }
 
 const PNL_EMPTY = '<div class="empty" style="padding:12px">暂无持仓盈亏数据</div>';
+
+/** 当前价：优先实时估值，其次最新净值 */
+function currentPrice() {
+  const q = (data && data.quote) || {};
+  const est = Number(q.estimate);
+  if (Number.isFinite(est) && est > 0) return est;
+  const nav = Number(q.nav);
+  return Number.isFinite(nav) && nav > 0 ? nav : null;
+}
+
+/** 买入 / 卖出提醒卡片内容（增删后就地重绘这一块） */
+function alertsInner() {
+  const list = (data && data.alerts) || [];
+  const cur = currentPrice();
+  const rows = list.length
+    ? list
+        .map((a) => {
+          const hit = !!a.triggered;
+          const gapText = hit
+            ? '已到达 ✓'
+            : a.gap === null || a.gap === undefined
+            ? '--'
+            : `还差 ${money(a.gap, 4)}${a.gapPct === null ? '' : `（${pct(a.gapPct, 1)}${a.type === 'buy' ? ' 待跌' : ' 待涨'}）`}`;
+          return `<div class="alert-row ${hit ? 'hit' : ''}">
+            <span class="alert-tag ${esc(a.type)}">${a.type === 'buy' ? '买' : '卖'}</span>
+            <span class="alert-target">到达 ${money(a.price, 4)}</span>
+            <span class="spacer"></span>
+            <span class="alert-gap ${hit ? 'hit' : ''}">${gapText}</span>
+            <button class="alert-del" data-alert-del="${esc(a.id)}" title="删除这条提醒" aria-label="删除">×</button>
+          </div>`;
+        })
+        .join('')
+    : `<div class="muted" style="font-size:12px;padding:8px 0 2px">还没有提醒。跌到心理价位想加仓就设「买入」，涨到目标价想止盈就设「卖出」。</div>`;
+
+  return `<div class="alert-form">
+      <div class="seg alert-seg">
+        <button data-alert-type="buy" class="${alertType === 'buy' ? 'active' : ''}">买入提醒</button>
+        <button data-alert-type="sell" class="${alertType === 'sell' ? 'active' : ''}">卖出提醒</button>
+      </div>
+      <input class="input alert-input" data-alert-price type="number" step="0.0001" min="0" inputmode="decimal"
+        placeholder="预期价（现价 ${cur === null ? '--' : money(cur, 4)}）" />
+      <button class="btn small" data-alert-add ${list.length >= 6 ? 'disabled' : ''}>添加</button>
+    </div>
+    <div class="alert-list">${rows}</div>`;
+}
 
 async function rerender() {
   if (!root) return;
@@ -646,6 +692,21 @@ export async function render(param) {
     </div>`
     : '';
 
+  // 买入 / 卖出提醒：到价后鸡舍卡片上会亮角标
+  const alertsCard = `
+    <div class="card" data-alerts-card>
+      <div class="card-title">🔔 买入 / 卖出提醒
+        <span class="spacer"></span>
+        <span class="muted" style="font-weight:400;font-size:12px">
+          <span data-alert-count>${((data && data.alerts) || []).length}</span>/6
+        </span>
+      </div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">
+        较的是实时估值：跌到买入价、涨到卖出价就算到达，鸡舍里这只鸡的卡片会亮起角标。
+      </div>
+      <div data-alerts-body>${alertsInner()}</div>
+    </div>`;
+
   // 持仓盈亏走势：只在有份额与成本、且历史足够画线时出现
   pnlHandle = null;
   let pnlCard = '';
@@ -716,7 +777,7 @@ export async function render(param) {
 
   // 桌面端左右分栏：主栏放走势/持仓/报告/心得，右栏放类型关键信息与基金档案
   return `<div class="detail-split">
-      <div class="detail-main">${header}${chart}${holding}${pnlCard}${reports}${notes}</div>
+      <div class="detail-main">${header}${chart}${holding}${alertsCard}${pnlCard}${reports}${notes}</div>
       <div class="detail-side">${profileCards}${info}</div>
     </div>
     <div class="disclaimer">数据来源：第三方公开接口，可能存在延迟或误差。<br/>本工具仅供个人学习研究，不构成投资建议。</div>`;
@@ -804,6 +865,61 @@ export async function mount(r) {
       if (pnlHandle.bind) pnlHandle.bind(pnlSlot);
     };
   });
+
+  /* 买入 / 卖出提醒：增删后只重绘这张卡片，不整页刷新 */
+  const alertsCardEl = r.querySelector('[data-alerts-card]');
+  if (alertsCardEl) {
+    const body = alertsCardEl.querySelector('[data-alerts-body]');
+    const countEl = alertsCardEl.querySelector('[data-alert-count]');
+    const bindAlerts = () => {
+      body.querySelectorAll('[data-alert-type]').forEach((b) => {
+        b.onclick = () => {
+          alertType = b.getAttribute('data-alert-type');
+          drawAlerts();
+        };
+      });
+      const input = body.querySelector('[data-alert-price]');
+      const addBtn = body.querySelector('[data-alert-add]');
+      if (addBtn) {
+        addBtn.onclick = async () => {
+          const v = Number(input && input.value);
+          if (!Number.isFinite(v) || v <= 0) {
+            toast('先填一个大于 0 的预期价');
+            return;
+          }
+          addBtn.disabled = true;
+          try {
+            const out = await Api.addAlert(code, { type: alertType, price: v });
+            data.alerts = out.alerts || [];
+            if (out.current) data.quote = { ...(data.quote || {}), estimate: out.current };
+            toast(alertType === 'buy' ? '买入提醒已设置' : '卖出提醒已设置');
+            drawAlerts();
+          } catch (err) {
+            toast((err.payload && err.payload.message) || '设置失败，稍后再试');
+            addBtn.disabled = false;
+          }
+        };
+      }
+      body.querySelectorAll('[data-alert-del]').forEach((b) => {
+        b.onclick = async () => {
+          const id = b.getAttribute('data-alert-del');
+          try {
+            await Api.delAlert(code, id);
+            data.alerts = ((data && data.alerts) || []).filter((x) => x.id !== id);
+            drawAlerts();
+          } catch (e) {
+            toast('删除失败，稍后再试');
+          }
+        };
+      });
+    };
+    const drawAlerts = () => {
+      body.innerHTML = alertsInner();
+      if (countEl) countEl.textContent = ((data && data.alerts) || []).length;
+      bindAlerts();
+    };
+    bindAlerts();
+  }
 
   const chickenId = data.chicken ? data.chicken.id : '';
   const nickname = (data.adoption && data.adoption.nickname) || (data.fund && data.fund.name) || code;

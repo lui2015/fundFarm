@@ -3578,3 +3578,121 @@ textarea.input {
     animation: none !important;
   }
 }
+
+/* ---------- 买入 / 卖出价格提醒 ---------- */
+/* 鸡舍卡片上的到价角标（放在今日涨跌下面一行） */
+.alert-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 5px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.7;
+  color: #fff;
+  background: var(--green);
+  box-shadow: 0 2px 8px rgba(47, 122, 79, 0.28);
+  animation: alert-pop 0.45s ease;
+}
+.alert-flag.sell {
+  background: var(--up);
+  box-shadow: 0 2px 8px rgba(230, 80, 58, 0.28);
+}
+.alert-flag[hidden] {
+  display: none;
+}
+@keyframes alert-pop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 详情页的提醒设置卡片 */
+.alert-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.alert-seg {
+  flex: 0 0 auto;
+  min-width: 164px;
+}
+.alert-input {
+  flex: 1 1 140px;
+  min-width: 120px;
+  min-height: 36px;
+  font-size: 13px;
+}
+.alert-list {
+  margin-top: 8px;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px;
+  border-top: 1px dashed var(--line);
+}
+.alert-row:first-child {
+  border-top: 0;
+}
+.alert-row.hit {
+  background: #fffaf0;
+  border-radius: 10px;
+  border-top-color: transparent;
+}
+.alert-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--green);
+}
+.alert-tag.sell {
+  background: var(--up);
+}
+.alert-target {
+  font-size: 13px;
+  font-weight: 700;
+}
+.alert-gap {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.alert-gap.hit {
+  color: #c2571a;
+  font-weight: 700;
+}
+.alert-del {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.alert-del:hover {
+  color: var(--up);
+  background: #f5efe2;
+}
