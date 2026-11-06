@@ -1146,30 +1146,6 @@ function getStats() {
   };
 }
 
-/**
- * 指数日 K（腾讯 fqkline，升序）：猜涨跌结算用。
- * 返回 [{ date: 'YYYY-MM-DD', close }]；盘中最后一根是当日实时值，调用方须自行判断收盘。
- */
-const klineCache = new TTLCache(10 * 60 * 1000);
-async function indexKline(code, days = 45) {
-  const key = `kline:${code}:${days}`;
-  const cached = klineCache.get(key);
-  if (cached) return cached;
-  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${encodeURIComponent(code)},day,,,${days},qfq`;
-  const text = await fetchText(url, {
-    timeout: 8000,
-    headers: { 'User-Agent': UA, Referer: 'https://gu.qq.com/' },
-  });
-  const json = JSON.parse(text);
-  const d = json && json.data && json.data[code];
-  const rows = (d && (d.qfqday || d.day)) || [];
-  const out = rows
-    .map((r) => ({ date: String(r[0]), close: Number(r[2]) }))
-    .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.date) && Number.isFinite(x.close) && x.close > 0);
-  if (!out.length) throw new Error('kline_empty');
-  return klineCache.set(key, out);
-}
-
 module.exports = {
   LIVE_MAX_AGE,
   isTrading,
@@ -1187,7 +1163,6 @@ module.exports = {
   categoryNames,
   getIndices,
   getGlobalIndices,
-  indexKline,
   weatherOf,
   normalizeType,
   getStats,

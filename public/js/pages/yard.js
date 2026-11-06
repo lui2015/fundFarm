@@ -437,17 +437,6 @@ export async function render() {
       }
     </div>`;
 
-  // 猜涨跌入口：每天猜一把次日大盘 / 持仓方向
-  const guessCard = `
-    <div class="card">
-      <div class="card-title">🎲 猜涨跌<span class="spacer"></span>
-        <a class="more-link" href="#/guess">去猜一把 ›</a></div>
-      <div class="muted" style="font-size:12px">
-        猜下一个交易日 A股大盘 / 港股大盘 / 自己持仓的涨跌，猜中 +2 饲料；
-        命中率和持仓收益率决定你的训练家称号。
-      </div>
-    </div>`;
-
   const reminders = (data.reminders || [])
     .map((r) => `<div class="report-item" data-code="${esc((r.codes || [])[0] || '')}">${esc(r.text)}</div>`)
     .join('');
@@ -465,7 +454,6 @@ export async function render() {
       </div>
       <div class="side-col">
         ${tasksHtml}
-        ${guessCard}
         ${reportsHtml}
         ${remindersHtml}
         ${eventsHtml}
