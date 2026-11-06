@@ -59,6 +59,9 @@ export const Api = {
   alerts: (code) => request('/funds/' + code + '/alerts'),
   addAlert: (code, b) => request('/funds/' + code + '/alerts', { method: 'POST', body: b }),
   delAlert: (code, id) => request('/funds/' + code + '/alerts/' + encodeURIComponent(id), { method: 'DELETE' }),
+  // 猜涨跌：猜下一个交易日的大盘 / 持仓方向
+  guess: () => request('/guess'),
+  makeGuess: (b) => request('/guess', { method: 'POST', body: b }),
   search: (q) => request('/search?q=' + encodeURIComponent(q)),
   // 喂食 / 安抚必须附投研素材：extra = { note } 或 { report_id }
   interact: (id, action, extra) =>

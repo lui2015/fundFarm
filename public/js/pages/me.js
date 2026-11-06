@@ -9,11 +9,13 @@ export async function render() {
   const s = getState();
   const u = s.user || {};
   const st = s.settings || {};
-  const [k, ach, lv] = await Promise.all([
+  const [k, ach, lv, gs] = await Promise.all([
     Api.keys(),
     Api.achievements().catch(() => ({ items: [], unlocked: 0, total: 0 })),
     Api.level().catch(() => null),
+    Api.guess().catch(() => null),
   ]);
+  const trainer = gs && gs.level ? gs.level : null;
   keys = k.items || [];
   achievements = ach || { items: [], unlocked: 0, total: 0 };
   const lvl = lv && lv.level ? lv.level : null;
@@ -104,7 +106,11 @@ export async function render() {
         <div style="flex:1">
           <div style="font-weight:800;font-size:17px">${esc(u.nickname || '农场主')}${
     u.isAdmin ? '<span class="tag">管理员</span>' : ''
-  }${lvl ? `<span class="tag lv-tag">${lvl.emoji} ${esc(lvl.name)}</span>` : ''}</div>
+  }${lvl ? `<span class="tag lv-tag">${lvl.emoji} ${esc(lvl.name)}</span>` : ''}${
+    trainer
+      ? `<a class="tag trainer-tag" href="#/guess" title="猜涨跌命中率 + 持仓收益率决定">${esc(trainer.emoji)} ${esc(trainer.name)}</a>`
+      : ''
+  }</div>
           <div class="muted" style="font-size:13px">
             ${u.anonymous ? '游客模式（数据已保存在本机浏览器会话）' : esc(u.username || '')}
             · 加入于 ${esc(fmtDate(u.createdAt))}

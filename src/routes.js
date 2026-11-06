@@ -16,6 +16,7 @@ const tasks = require('./engine/tasks');
 const levelEngine = require('./engine/level');
 const pnlEngine = require('./engine/pnl');
 const alertEngine = require('./engine/alerts');
+const guessEngine = require('./engine/guess');
 const { id: gid, today, nowISO, daysBetween, round } = require('./util');
 
 const router = express.Router();
@@ -1022,6 +1023,29 @@ router.get('/explore', auth.requireAuth, async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: 'explore_failed', message: String(err.message || err) });
   }
+});
+
+/* ============================ 猜涨跌 ============================ */
+
+/** 猜涨跌主页数据：今日三项 + 统计 + 训练家称号 + 历史（进来先懒结算一遍） */
+router.get('/guess', auth.requireAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await guessEngine.overview(req.user.id)) });
+  } catch (err) {
+    res.status(500).json({ error: 'guess_failed', message: String(err.message || err) });
+  }
+});
+
+/** 下注：kind=a_share|hk_share|portfolio，dir=up|down；每类每天一次，目标下一个交易日 */
+router.post('/guess', auth.requireAuth, (req, res) => {
+  const body = req.body || {};
+  const out = guessEngine.place(req.user.id, String(body.kind || ''), String(body.dir || ''));
+  if (out.error) {
+    const status = out.error === 'already_guessed' ? 409 : 400;
+    const message = out.error === 'already_guessed' ? '这一项今天已经猜过了，等明天再猜' : '参数不合法';
+    return res.status(status).json({ error: out.error, message });
+  }
+  res.json({ ok: true, guess: out.guess });
 });
 
 /* ============================ 报告 ============================ */

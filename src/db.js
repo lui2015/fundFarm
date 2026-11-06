@@ -254,6 +254,23 @@ CREATE TABLE IF NOT EXISTS price_alerts (
   hit_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_user_fund ON price_alerts(user_id, fund_code);
+
+-- 猜涨跌：猜下一个交易日的 A股大盘 / 港股大盘 / 自己持仓的组合涨跌
+-- 每个自然日每类只能猜一次；结算后写 result（win/lose/draw）与当日实际涨跌幅
+CREATE TABLE IF NOT EXISTS guesses (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  guess_date  TEXT NOT NULL,
+  target_date TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  dir         TEXT NOT NULL,
+  result      TEXT,
+  settle_pct  REAL,
+  settled_at  TEXT,
+  created_at  TEXT NOT NULL,
+  UNIQUE (user_id, guess_date, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_guesses_user ON guesses(user_id, guess_date);
 `);
 
 const ACHIEVEMENTS = [

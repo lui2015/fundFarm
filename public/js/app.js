@@ -7,6 +7,7 @@ import * as Detail from './pages/detail.js';
 import * as Discover from './pages/discover.js';
 import * as Analysis from './pages/analysis.js';
 import * as Me from './pages/me.js';
+import * as Guess from './pages/guess.js';
 import * as ReportPage from './pages/report.js';
 import { stopLive } from './live.js';
 
@@ -35,14 +36,14 @@ function parseHash() {
   if (!parts.length) return { name: 'yard', param: '' };
   if (parts[0] === 'fund') return { name: 'fund', param: parts[1] || '' };
   if (parts[0] === 'report') return { name: 'report', param: parts[1] || '' };
-  if (['yard', 'funds', 'reports', 'discover', 'analysis', 'me'].includes(parts[0]))
+  if (['yard', 'funds', 'reports', 'discover', 'analysis', 'me', 'guess'].includes(parts[0]))
     return { name: parts[0], param: '' };
   return { name: 'yard', param: '' };
 }
 
 function navKey(name) {
-  // 自选 / 基金详情 / 报告库 / 报告详情都是鸡舍下的子页面，导航高亮回鸡舍
-  if (['funds', 'fund', 'reports', 'report'].includes(name)) return 'yard';
+  // 自选 / 基金详情 / 报告库 / 报告详情 / 猜涨跌都是鸡舍下的子页面，导航高亮回鸡舍
+  if (['funds', 'fund', 'reports', 'report', 'guess'].includes(name)) return 'yard';
   return name;
 }
 
@@ -161,6 +162,7 @@ const PAGES = {
   discover: Discover,
   analysis: Analysis,
   me: Me,
+  guess: Guess,
 };
 
 export function refresh() {
