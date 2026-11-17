@@ -29,6 +29,16 @@ module.exports = {
   },
   maxUploadMB: 20,
   maxAdoptions: 50,
+  // COS 附件存储：配了 SecretId/Key 就走 COS，否则回退本地 data/reports
+  cos: {
+    secretId: process.env.COS_SECRET_ID || '',
+    secretKey: process.env.COS_SECRET_KEY || '',
+    token: process.env.COS_SECURITY_TOKEN || '',
+    bucket: process.env.COS_BUCKET || 'lyman-1258661753',
+    region: process.env.COS_REGION || 'ap-guangzhou',
+    prefix: (process.env.COS_PREFIX || 'fundFarm/reports').replace(/^\/+|\/+$/g, ''),
+    enabled: !!(process.env.COS_SECRET_ID && process.env.COS_SECRET_KEY),
+  },
   // 默认管理员账号：首次启动时自动创建，可用环境变量覆盖；设 ADMIN_PASSWORD 为空则不创建
   admin: {
     username: process.env.ADMIN_USERNAME || 'luli',

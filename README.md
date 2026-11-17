@@ -279,6 +279,15 @@ data/                  SQLite 库与上传的报告（已 gitignore）
 - 到达的提醒会在**鸡舍对应基金卡片**的今日涨跌下方亮起角标（买入绿、卖出红），实时轮询（`/api/v1/quotes` 返回 `alerts`）时自动亮起 / 收起
 - 接口：`GET|POST /api/v1/funds/:code/alerts`、`DELETE /api/v1/funds/:code/alerts/:id`；表 `price_alerts`
 
+## 报告附件存储（COS）
+
+上传的附件（PDF / HTML / MD / 图片等）统一存到腾讯云 COS 桶 `lyman-1258661753`，不再占轻量服务器磁盘：
+
+- `multer` 内存接收 → `src/storage.js` 直传 COS，对象 key = `fundFarm/reports/{userId}/{reportId}_{安全化文件名}`；DB 的 `reports.file_path` 存 `cos://<key>`
+- 原文读取（用于 AI 解析与 `raw`）、下载 `/reports/{id}/download`、删除 `/reports/{id}` 全部走存储层，鉴权不变（只能访问自己的报告）
+- 未配置 `COS_SECRET_ID/KEY` 时回退本地 `data/reports`；**历史本地文件仍可正常读取 / 下载 / 删除**，无需迁移
+- 环境变量：`COS_SECRET_ID`、`COS_SECRET_KEY`、`COS_BUCKET`、`COS_REGION`、`COS_PREFIX`（详见 `.env.example`）
+
 ## 报告模块
 
 报告库不再占主导航位（底部 Tab / 侧栏只有 3 项：鸡舍 / 发现 / 我的），入口是**鸡舍右栏「分析报告 → 查看全部 N 份 ›」**；

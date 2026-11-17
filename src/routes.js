@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
+const storage = require('./storage');
 const db = require('./db');
 const config = require('./config');
 const auth = require('./auth');
@@ -1026,12 +1027,9 @@ router.get('/explore', auth.requireAuth, async (req, res) => {
 
 /* ============================ 报告 ============================ */
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, config.uploadDir),
-  filename: (req, file, cb) => cb(null, `${req.reportId}_${sanitizeFileName(file.originalname)}`),
-});
+// 内存接收后交给 storage 层：配了 COS 直接传 COS，否则落本地；不再无条件占本地磁盘
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: config.maxUploadMB * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
@@ -1080,17 +1078,6 @@ function publicReport(r, includeContent = false) {
         }
       : null,
   };
-}
-
-function readTextFile(filePath, ext) {
-  try {
-    if (['.md', '.markdown', '.txt', '.csv', '.html', '.htm'].includes(ext)) {
-      return fs.readFileSync(filePath, 'utf8');
-    }
-  } catch (e) {
-    /* ignore */
-  }
-  return '';
 }
 
 /**
@@ -1162,12 +1149,13 @@ function createReportHandler(resolveFundCode) {
       let mime = null;
       let size = 0;
       if (req.file) {
-        filePath = req.file.path;
         fileName = req.file.originalname;
         mime = req.file.mimetype;
         size = req.file.size;
         const ext = path.extname(fileName).toLowerCase();
-        if (!text) text = readTextFile(filePath, ext);
+        const storedName = `${req.reportId}_${sanitizeFileName(fileName)}`;
+        filePath = await storage.save(req.user.id, storedName, req.file.buffer);
+        if (!text) text = await storage.readText(filePath, ext);
       } else {
         size = Buffer.byteLength(content, 'utf8');
       }
@@ -1385,11 +1373,14 @@ router.get('/reports/:id/raw', auth.requireAuth, (req, res) => {
   return res.type('text/plain; charset=utf-8').send(r.content);
 });
 
-router.get('/reports/:id/download', auth.requireAuth, (req, res) => {
+router.get('/reports/:id/download', auth.requireAuth, async (req, res) => {
   const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!r || r.user_id !== req.user.id || !r.file_path) return res.status(404).json({ error: 'not_found' });
-  if (!fs.existsSync(r.file_path)) return res.status(404).json({ error: 'file_missing' });
-  res.download(r.file_path, r.file_name || 'report');
+  try {
+    await storage.sendDownload(r.file_path, res, r.file_name || 'report');
+  } catch (e) {
+    res.status(404).json({ error: 'file_missing', message: String(e.message || e) });
+  }
 });
 
 router.post('/reports/:id/reparse', auth.requireAuth, (req, res) => {
@@ -1401,16 +1392,10 @@ router.post('/reports/:id/reparse', auth.requireAuth, (req, res) => {
   parseInBackground(r.id, r.content, req.user.id, r.fund_code, r.content_type);
 });
 
-router.delete('/reports/:id', auth.requireAuth, (req, res) => {
+router.delete('/reports/:id', auth.requireAuth, async (req, res) => {
   const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
   if (!r || r.user_id !== req.user.id) return res.status(404).json({ error: 'not_found' });
-  if (r.file_path && fs.existsSync(r.file_path)) {
-    try {
-      fs.unlinkSync(r.file_path);
-    } catch (e) {
-      /* ignore */
-    }
-  }
+  await storage.remove(r.file_path);
   db.prepare('DELETE FROM report_parses WHERE report_id = ?').run(r.id);
   db.prepare('DELETE FROM reports WHERE id = ?').run(r.id);
   res.json({ ok: true });
